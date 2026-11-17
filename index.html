@@ -1,0 +1,2000 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>ARTEMIS TRAVERSE // Lunar Rover Science Simulation</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --nasa-blue: #0b3d91;
+      --nasa-red: #fc3d21;
+      --hud-bg: rgba(10, 14, 22, 0.86);
+      --hud-border: rgba(148, 163, 184, 0.25);
+      --accent-cyan: #38bdf8;
+      --accent-amber: #fbbf24;
+      --accent-emerald: #34d399;
+    }
+
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    body, html {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #030408;
+      font-family: 'Space Grotesk', sans-serif;
+      color: #f1f5f9;
+    }
+
+    .mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* NASA JPL Mission Control Styling */
+    .hud-panel {
+      background: var(--hud-bg);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--hud-border);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.65);
+    }
+
+    .control-btn {
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+      transition: all 0.12s ease;
+      touch-action: manipulation;
+    }
+
+    .control-btn:active, .control-btn.active {
+      transform: translateY(1px) scale(0.98);
+      border-color: var(--accent-cyan);
+      background: rgba(14, 116, 144, 0.45);
+      box-shadow: 0 0 14px rgba(56, 189, 248, 0.35);
+    }
+
+    .control-btn.warn-active {
+      border-color: var(--accent-amber);
+      background: rgba(180, 83, 9, 0.45);
+      box-shadow: 0 0 14px rgba(251, 191, 36, 0.35);
+    }
+
+    .scanline {
+      background: linear-gradient(
+        to bottom,
+        rgba(255,255,255,0),
+        rgba(255,255,255,0) 50%,
+        rgba(0,0,0,0.18) 50%,
+        rgba(0,0,0,0.18)
+      );
+      background-size: 100% 4px;
+      pointer-events: none;
+    }
+
+    @keyframes pulseAlert {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+
+    .animate-alert {
+      animation: pulseAlert 0.8s infinite;
+    }
+
+    /* Custom Scrollbar for Science Log */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.5);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(148, 163, 184, 0.4);
+      border-radius: 3px;
+    }
+  </style>
+</head>
+<body class="relative w-full h-full">
+
+  <!-- Main Simulation Canvas -->
+  <canvas id="simCanvas"></canvas>
+
+  <!-- Subtle CRT/Telemetry Scanline Overlay -->
+  <div class="fixed inset-0 scanline z-10 opacity-35"></div>
+
+  <!-- Top Mission Control HUD -->
+  <header class="fixed top-0 left-0 right-0 z-20 p-2 sm:p-3 flex flex-col lg:flex-row justify-between items-stretch lg:items-start gap-2 pointer-events-none">
+    
+    <!-- Left: Mission Header & Active Objective -->
+    <div class="hud-panel rounded-xl p-2.5 sm:p-3.5 max-w-xl pointer-events-auto flex flex-col gap-1.5">
+      <div class="flex items-center justify-between gap-2 border-b border-slate-700/70 pb-1.5">
+        <div class="flex items-center gap-2">
+          <span class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]"></span>
+          <span class="mono text-[11px] sm:text-xs font-bold tracking-wider text-sky-400 uppercase">NASA // ARTEMIS-VII TRAVERSE</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span id="audioToggleBtn" role="button" tabindex="0" class="mono text-[11px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 cursor-pointer text-slate-300">
+            AUDIO: OFF
+          </span>
+          <span id="missionCounter" class="mono text-[11px] px-2 py-0.5 rounded bg-sky-950/90 border border-sky-500/40 text-sky-300 font-semibold">
+            OBJ 1/5
+          </span>
+        </div>
+      </div>
+
+      <!-- Current Waypoint Objective -->
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div id="missionTitle" class="text-sm sm:text-base font-bold text-white leading-tight">
+            1. Mare Basalt Regolith Survey
+          </div>
+          <p id="missionDesc" class="text-xs text-slate-300 mt-0.5 leading-snug">
+            Drive East to the dark volcanic basalt outcrop. Stop near marker and run Spectrometer/Drill.
+          </p>
+        </div>
+        <div class="text-right shrink-0 bg-slate-900/90 px-2.5 py-1.5 rounded-lg border border-slate-700/80">
+          <div class="mono text-[10px] text-slate-400 uppercase">TARGET DIST</div>
+          <div id="targetDistVal" class="mono text-sm sm:text-base font-bold text-amber-400">120 m</div>
+          <div id="targetDirVal" class="mono text-[10px] text-sky-400">EAST &rarr;</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Real-Time Engineering Telemetry Strip -->
+    <div class="hud-panel rounded-xl p-2 sm:p-3 pointer-events-auto grid grid-cols-4 sm:grid-cols-6 gap-2 sm:gap-3 text-center">
+      <!-- Velocity -->
+      <div class="bg-slate-900/75 rounded-lg px-2 py-1 border border-slate-800">
+        <div class="mono text-[9px] sm:text-[10px] text-slate-400">VELOCITY</div>
+        <div id="telSpeed" class="mono text-xs sm:text-sm font-bold text-white">0.0 m/s</div>
+        <div id="telGravity" class="mono text-[9px] text-slate-500">g=1.62m/s²</div>
+      </div>
+
+      <!-- Pitch / Tilt -->
+      <div id="pitchBox" class="bg-slate-900/75 rounded-lg px-2 py-1 border border-slate-800 transition-colors">
+        <div class="mono text-[9px] sm:text-[10px] text-slate-400">PITCH / TILT</div>
+        <div id="telPitch" class="mono text-xs sm:text-sm font-bold text-emerald-400">0.0°</div>
+        <div id="telPitchStatus" class="mono text-[9px] text-slate-500">NOMINAL</div>
+      </div>
+
+      <!-- Wheel Slip -->
+      <div class="bg-slate-900/75 rounded-lg px-2 py-1 border border-slate-800">
+        <div class="mono text-[9px] sm:text-[10px] text-slate-400">WHEEL SLIP</div>
+        <div id="telSlip" class="mono text-xs sm:text-sm font-bold text-sky-300">0%</div>
+        <div id="telTraction" class="mono text-[9px] text-slate-500">REGOLITH</div>
+      </div>
+
+      <!-- Battery Charge -->
+      <div id="batteryBox" class="bg-slate-900/75 rounded-lg px-2 py-1 border border-slate-800">
+        <div class="mono text-[9px] sm:text-[10px] text-slate-400">BATTERY</div>
+        <div id="telBattery" class="mono text-xs sm:text-sm font-bold text-emerald-400">100%</div>
+        <div id="telWh" class="mono text-[9px] text-slate-400">850 Wh</div>
+      </div>
+
+      <!-- Power Balance (Solar vs Draw) -->
+      <div class="hidden sm:block bg-slate-900/75 rounded-lg px-2 py-1 border border-slate-800">
+        <div class="mono text-[10px] text-slate-400">SOLAR / DRAW</div>
+        <div class="mono text-xs font-bold">
+          <span id="telSolar" class="text-amber-300">+140W</span>
+          <span class="text-slate-500">/</span>
+          <span id="telDraw" class="text-rose-400">-25W</span>
+        </div>
+        <div id="telShadowStatus" class="mono text-[9px] text-amber-400/90">SUNLIT</div>
+      </div>
+
+      <!-- Sample Core Storage -->
+      <div class="hidden sm:block bg-slate-900/75 rounded-lg px-2 py-1 border border-slate-800">
+        <div class="mono text-[10px] text-slate-400">CORE SAMPLES</div>
+        <div id="telSamples" class="mono text-sm font-bold text-purple-300">0 / 5</div>
+        <div class="mono text-[9px] text-slate-500">HERMETIC</div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Contextual Prompt Banner (Appears when near science target or low battery/tilt) -->
+  <div id="contextBanner" class="fixed top-36 sm:top-28 left-1/2 -translate-x-1/2 z-20 pointer-events-none transition-all duration-200 opacity-0 scale-95">
+    <div id="contextBannerInner" class="hud-panel px-4 py-2 rounded-full border-sky-400/60 flex items-center gap-2 shadow-lg">
+      <span class="w-2 h-2 rounded-full bg-sky-400 animate-ping"></span>
+      <span id="contextBannerText" class="mono text-xs sm:text-sm font-semibold text-sky-200">
+        TARGET IN RANGE — PRESS [SPACE / E] OR "ANALYZE" TO DEPLOY SPECTROMETER
+      </span>
+    </div>
+  </div>
+
+  <!-- Science Drill / Spectrometer Progress Bar Overlay -->
+  <div id="scanOverlay" class="fixed top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 hidden pointer-events-none">
+    <div class="hud-panel rounded-2xl p-4 sm:p-5 w-72 sm:w-80 border-sky-400/70 text-center">
+      <div class="mono text-xs font-bold text-sky-400 tracking-widest uppercase mb-1">LASER SPECTROMETER & CORE DRILL</div>
+      <div id="scanTargetName" class="text-sm font-semibold text-white mb-3">Sampling Lunar Regolith...</div>
+      <div class="w-full h-3 bg-slate-900 rounded-full overflow-hidden border border-slate-700 p-0.5">
+        <div id="scanProgressBar" class="h-full bg-gradient-to-r from-sky-500 to-emerald-400 rounded-full transition-all duration-75" style="width: 0%"></div>
+      </div>
+      <div id="scanPercent" class="mono text-xs text-slate-300 mt-1.5">0% — VAPORIZING SAMPLE</div>
+    </div>
+  </div>
+
+  <!-- Bottom Control Deck (Keyboard + Touch Friendly) -->
+  <footer class="fixed bottom-0 left-0 right-0 z-20 p-2 sm:p-4 flex flex-col sm:flex-row justify-between items-center gap-2 pointer-events-none">
+    
+    <!-- Left Controls: Drive Reverse / Forward -->
+    <div class="flex items-center gap-2 sm:gap-3 pointer-events-auto order-2 sm:order-1 w-full sm:w-auto justify-between sm:justify-start">
+      <div class="flex items-center gap-2">
+        <button id="btnLeft" class="control-btn rounded-xl px-4 py-3 sm:px-5 sm:py-3.5 flex flex-col items-center justify-center min-w-[72px] sm:min-w-[84px]">
+          <span class="text-base sm:text-lg font-bold text-white">&larr; REV</span>
+          <span class="mono text-[10px] text-slate-400">[A / &larr;]</span>
+        </button>
+        <button id="btnRight" class="control-btn rounded-xl px-4 py-3 sm:px-5 sm:py-3.5 flex flex-col items-center justify-center min-w-[72px] sm:min-w-[84px]">
+          <span class="text-base sm:text-lg font-bold text-white">FWD &rarr;</span>
+          <span class="mono text-[10px] text-slate-400">[D / &rarr;]</span>
+        </button>
+      </div>
+
+      <!-- Center Subsystem Toggles -->
+      <div class="flex items-center gap-1.5 sm:gap-2">
+        <button id="btnLights" class="control-btn rounded-xl px-3 py-2.5 sm:px-3.5 sm:py-3 flex flex-col items-center justify-center">
+          <span class="text-xs sm:text-sm font-bold text-amber-300">LIGHTS</span>
+          <span id="lightStateLabel" class="mono text-[10px] text-slate-300">OFF [L]</span>
+        </button>
+
+        <button id="btnDriveMode" class="control-btn rounded-xl px-3 py-2.5 sm:px-3.5 sm:py-3 flex flex-col items-center justify-center">
+          <span id="driveModeTitle" class="text-xs sm:text-sm font-bold text-emerald-300">4WD TORQUE</span>
+          <span class="mono text-[10px] text-slate-300">MODE [M]</span>
+        </button>
+
+        <button id="btnAnalyze" class="control-btn rounded-xl px-3.5 py-2.5 sm:px-4 sm:py-3 flex flex-col items-center justify-center border-sky-500/60">
+          <span class="text-xs sm:text-sm font-bold text-sky-300">DRILL / SCAN</span>
+          <span class="mono text-[10px] text-slate-300">[SPACE]</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Right Controls: Reaction Wheel Pitch Trim & Brake -->
+    <div class="flex items-center gap-2 pointer-events-auto order-1 sm:order-2 self-end sm:self-auto">
+      <button id="btnBrake" class="control-btn rounded-xl px-3.5 py-2.5 sm:px-4 sm:py-3 flex flex-col items-center justify-center">
+        <span class="text-xs sm:text-sm font-bold text-rose-400">BRAKE</span>
+        <span class="mono text-[10px] text-slate-400">[S / &darr;]</span>
+      </button>
+      <button id="btnGyroLeft" title="Pitch Nose Up (Reaction Wheel)" class="control-btn rounded-xl px-3 py-2.5 sm:px-3.5 sm:py-3 flex flex-col items-center justify-center">
+        <span class="text-xs sm:text-sm font-bold text-slate-200">&#8634; GYRO</span>
+        <span class="mono text-[10px] text-slate-400">[Q]</span>
+      </button>
+      <button id="btnGyroRight" title="Pitch Nose Down (Reaction Wheel)" class="control-btn rounded-xl px-3 py-2.5 sm:px-3.5 sm:py-3 flex flex-col items-center justify-center">
+        <span class="text-xs sm:text-sm font-bold text-slate-200">GYRO &#8635;</span>
+        <span class="mono text-[10px] text-slate-400">[W / &uarr;]</span>
+      </button>
+    </div>
+  </footer>
+
+  <!-- Educational Science Log Modal -->
+  <div id="scienceModal" class="fixed inset-0 z-40 bg-black/75 backdrop-blur-sm hidden flex items-center justify-center p-3 sm:p-6">
+    <div class="hud-panel rounded-2xl max-w-2xl w-full max-h-[88vh] flex flex-col border-sky-400/50 overflow-hidden shadow-2xl">
+      <!-- Modal Header -->
+      <div class="bg-slate-900/95 px-5 py-3.5 border-b border-slate-700 flex items-center justify-between">
+        <div class="flex items-center gap-2.5">
+          <span class="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/50 mono text-xs font-bold text-emerald-300">SAMPLE LOGGED</span>
+          <h2 id="modalCategory" class="mono text-xs sm:text-sm text-sky-400 uppercase tracking-wider font-semibold">PLANETARY GEOLOGY</h2>
+        </div>
+        <span id="modalApolloRef" class="mono text-xs text-amber-300 font-semibold">APOLLO 15 / ARTEMIS</span>
+      </div>
+
+      <!-- Modal Content -->
+      <div class="p-5 sm:p-6 overflow-y-auto space-y-4">
+        <h3 id="modalTitle" class="text-xl sm:text-2xl font-bold text-white">Mare Basalt & Volcanic Glass</h3>
+        
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5 bg-slate-950/70 p-3 rounded-xl border border-slate-800">
+          <div>
+            <div class="mono text-[10px] text-slate-400">MINERALOGY</div>
+            <div id="modalMinerals" class="mono text-xs font-semibold text-sky-300">Pyroxene, Ilmenite (FeTiO₃)</div>
+          </div>
+          <div>
+            <div class="mono text-[10px] text-slate-400">AGE ESTIMATE</div>
+            <div id="modalAge" class="mono text-xs font-semibold text-amber-300">3.3 Billion Years</div>
+          </div>
+          <div class="col-span-2 sm:col-span-1">
+            <div class="mono text-[10px] text-slate-400">ISRU VALUE</div>
+            <div id="modalIsru" class="mono text-xs font-semibold text-emerald-400">O₂ & Titanium Extraction</div>
+          </div>
+        </div>
+
+        <div class="space-y-2.5 text-sm sm:text-base text-slate-200 leading-relaxed">
+          <p id="modalBody1"></p>
+          <div class="bg-sky-950/40 border-l-4 border-sky-400 p-3.5 rounded-r-lg">
+            <div class="mono text-xs font-bold text-sky-300 uppercase mb-1">LUNAR PHYSICS & ENGINEERING NOTE</div>
+            <p id="modalPhysicsNote" class="text-xs sm:text-sm text-slate-300"></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="bg-slate-900/95 px-5 py-3.5 border-t border-slate-700 flex items-center justify-between gap-3">
+        <span id="modalRewardText" class="mono text-xs text-emerald-400">+150 Wh Fuel Cell Calibration Bonus</span>
+        <button id="modalContinueBtn" class="px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-sm transition shadow-lg shadow-sky-600/30 cursor-pointer">
+          TRANSMIT TO HOUSTON & CONTINUE &rarr;
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mission Complete / Recovery Modal -->
+  <div id="endModal" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-md hidden flex items-center justify-center p-4">
+    <div class="hud-panel rounded-2xl max-w-lg w-full p-6 border-slate-600 text-center space-y-4">
+      <div id="endBadge" class="inline-block px-3 py-1 rounded-full mono text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/50">
+        MISSION ACCOMPLISHED
+      </div>
+      <h2 id="endTitle" class="text-2xl sm:text-3xl font-bold text-white">Artemis Traverse Complete!</h2>
+      <p id="endDesc" class="text-sm text-slate-300 leading-relaxed">
+        All 5 geological core samples and geophysical instruments have been successfully analyzed and transmitted to Mission Control.
+      </p>
+      <div id="endStats" class="grid grid-cols-3 gap-2 bg-slate-900/90 p-3 rounded-xl border border-slate-800 mono text-xs">
+        <div>
+          <div class="text-slate-400 text-[10px]">SAMPLES</div>
+          <div id="statSamples" class="text-emerald-400 font-bold text-sm">5 / 5</div>
+        </div>
+        <div>
+          <div class="text-slate-400 text-[10px]">DISTANCE</div>
+          <div id="statDist" class="text-sky-400 font-bold text-sm">0 m</div>
+        </div>
+        <div>
+          <div class="text-slate-400 text-[10px]">BATTERY LEFT</div>
+          <div id="statBatt" class="text-amber-400 font-bold text-sm">0%</div>
+        </div>
+      </div>
+      <button id="restartBtn" class="w-full py-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-sm tracking-wide transition cursor-pointer">
+        DEPLOY NEW LUNAR TRAVERSE
+      </button>
+    </div>
+  </div>
+
+  <script>
+    /**
+     * ARTEMIS TRAVERSE — Educational & Physically Realistic Lunar Rover Simulation
+     * ----------------------------------------------------------------------------
+     * Physics & Engineering Systems:
+     * 1. Lunar Gravity: 1.62 m/s² (approx. 1/6th of Earth's 9.81 m/s²).
+     * 2. Vacuum Environment: Zero aerodynamic drag; regolith plumes follow pure
+     *    parabolic ballistic trajectories without billowing air turbulence.
+     * 3. Rocker-Bogie Suspension: 3-wheel-pair suspension articulating over
+     *    procedural craters, rilles, and lunar boulders.
+     * 4. Regolith Traction & Slip: Loose lunar dust reduces static friction on steep
+     *    crater walls (>22°), increasing wheel slip percentage and power draw.
+     * 5. Solar & Thermal Shadowing: Low-angle South Pole sunlight charges solar
+     *    arrays based on panel incidence angle; permanently shadowed craters
+     *    drop solar input to 0W, requiring high-beam LED spotlights.
+     */
+
+    // =========================================================================
+    // 1. WEB AUDIO API SYNTHESIZER (Motor hum, wheel crunch, scanner, alerts)
+    // =========================================================================
+    class LunarAudioEngine {
+      constructor() {
+        this.ctx = null;
+        this.enabled = false;
+        this.motorOsc = null;
+        this.motorGain = null;
+        this.noiseNode = null;
+        this.noiseGain = null;
+        this.noiseFilter = null;
+      }
+
+      init() {
+        if (this.ctx) return;
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        this.ctx = new AudioCtx();
+
+        // Subtle Brushless DC Hub Motor Hum
+        this.motorOsc = this.ctx.createOscillator();
+        this.motorOsc.type = 'sawtooth';
+        this.motorOsc.frequency.value = 55;
+
+        const motorFilter = this.ctx.createBiquadFilter();
+        motorFilter.type = 'lowpass';
+        motorFilter.frequency.value = 180;
+
+        this.motorGain = this.ctx.createGain();
+        this.motorGain.gain.value = 0.0;
+
+        this.motorOsc.connect(motorFilter);
+        motorFilter.connect(this.motorGain);
+        this.motorGain.connect(this.ctx.destination);
+        this.motorOsc.start();
+
+        // Regolith Tire Crunch (Filtered Brown/Pink Noise)
+        const bufferSize = this.ctx.sampleRate * 2;
+        const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const output = noiseBuffer.getChannelData(0);
+        let lastOut = 0.0;
+        for (let i = 0; i < bufferSize; i++) {
+          const white = Math.random() * 2 - 1;
+          output[i] = (lastOut + (0.04 * white)) / 1.04;
+          lastOut = output[i];
+          output[i] *= 2.5;
+        }
+
+        this.noiseNode = this.ctx.createBufferSource();
+        this.noiseNode.buffer = noiseBuffer;
+        this.noiseNode.loop = true;
+
+        this.noiseFilter = this.ctx.createBiquadFilter();
+        this.noiseFilter.type = 'bandpass';
+        this.noiseFilter.frequency.value = 420;
+        this.noiseFilter.Q.value = 1.2;
+
+        this.noiseGain = this.ctx.createGain();
+        this.noiseGain.gain.value = 0.0;
+
+        this.noiseNode.connect(this.noiseFilter);
+        this.noiseFilter.connect(this.noiseGain);
+        this.noiseGain.connect(this.ctx.destination);
+        this.noiseNode.start();
+      }
+
+      toggle() {
+        if (!this.ctx) this.init();
+        if (this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+        this.enabled = !this.enabled;
+        if (!this.enabled && this.motorGain && this.noiseGain) {
+          this.motorGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05);
+          this.noiseGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05);
+        }
+        return this.enabled;
+      }
+
+      updateDriveSound(speedAbs, throttleAbs, groundedCount, slipRatio) {
+        if (!this.enabled || !this.ctx) return;
+        const now = this.ctx.currentTime;
+
+        // Motor pitch scales with wheel RPM
+        const targetFreq = 48 + speedAbs * 14 + throttleAbs * 22;
+        const targetMotorGain = Math.min(0.06, (throttleAbs * 0.035 + speedAbs * 0.004));
+        this.motorOsc.frequency.setTargetAtTime(targetFreq, now, 0.08);
+        this.motorGain.gain.setTargetAtTime(targetMotorGain, now, 0.08);
+
+        // Regolith crunch scales when wheels contact surface and move/slip
+        const groundFactor = groundedCount / 3;
+        const crunchIntensity = groundFactor * Math.min(1, (speedAbs * 0.12 + slipRatio * 0.5));
+        this.noiseFilter.frequency.setTargetAtTime(320 + speedAbs * 65, now, 0.08);
+        this.noiseGain.gain.setTargetAtTime(crunchIntensity * 0.07, now, 0.08);
+      }
+
+      playBeep(freq = 880, duration = 0.12, type = 'sine', vol = 0.08) {
+        if (!this.enabled || !this.ctx) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, now);
+        gain.gain.setValueAtTime(vol, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + duration);
+      }
+
+      playScanTick(progress) {
+        this.playBeep(440 + progress * 660, 0.07, 'triangle', 0.05);
+      }
+
+      playSuccess() {
+        this.playBeep(587.33, 0.12, 'sine', 0.09);
+        setTimeout(() => this.playBeep(880, 0.24, 'sine', 0.09), 110);
+      }
+
+      playWarning() {
+        this.playBeep(310, 0.14, 'sawtooth', 0.06);
+      }
+    }
+
+    const audio = new LunarAudioEngine();
+
+    // =========================================================================
+    // 2. EDUCATIONAL SCIENCE MISSION DATABASE
+    // =========================================================================
+    const SCIENCE_MISSIONS = [
+      {
+        id: 'basalt_outcrop',
+        x: 135, // meters East of landing site
+        title: '1. Mare Basalt Volcanic Outcrop',
+        shortDesc: 'Drive East to the dark iron-rich basalt boulder field and deploy the Spectrometer.',
+        category: 'LUNAR VOLCANISM & PETROLOGY',
+        apolloRef: 'APOLLO 15 // HADLEY RILLE',
+        minerals: 'Pyroxene, Plagioclase, Ilmenite (FeTiO₃)',
+        age: '3.35 Billion Years',
+        isru: 'Oxygen & Titanium Feedstock',
+        body1: 'The dark plains visible from Earth—known as Lunar Maria ("seas")—are ancient flood basalts formed when massive asteroid impacts fractured the Moon’s crust, allowing iron- and titanium-rich magma to well up and solidify.',
+        physicsNote: 'Because the Moon lacks liquid water and free oxygen, these 3.3-billion-year-old basalt crystals are completely unweathered by rust or erosion, preserving a pristine record of early solar system volcanism.',
+        analyzed: false,
+        type: 'basalt'
+      },
+      {
+        id: 'regolith_ejecta',
+        x: 310,
+        title: '2. Micrometeorite Impact Ejecta Blanket',
+        shortDesc: 'Climb the crater rim ahead to sample glassy agglutinates in the lunar regolith.',
+        category: 'SPACE WEATHERING & REGOLITH',
+        apolloRef: 'APOLLO 11 & 17 // REGOLITH CORE',
+        minerals: 'Nanophase Iron (np-Fe⁰), Impact Glass',
+        age: '4.1 Billion Years (Reworked)',
+        isru: '3D-Printed Radiation Shielding',
+        body1: 'Without an atmosphere to burn up incoming debris, billions of years of micrometeorite impacts have pulverized lunar bedrock into a fine, powdery blanket called regolith—rich in sharp, melted glass shards called agglutinates.',
+        physicsNote: 'Lunar dust is razor-sharp (never rounded by wind or water) and electrostatically charged by solar UV radiation, causing it to cling stubbornly to spacesuits, radiators, and rover bearings.',
+        analyzed: false,
+        type: 'ejecta'
+      },
+      {
+        id: 'psr_water_ice',
+        x: 505,
+        title: '3. Permanently Shadowed Crater (Water Ice)',
+        shortDesc: 'Descend into the pitch-black crater floor. Turn on Headlights [L] and drill for subsurface ice!',
+        category: 'VOLATILES & CRYOGENIC TRAPS',
+        apolloRef: 'ARTEMIS III // LUNAR SOUTH POLE',
+        minerals: 'Crystalline H₂O Ice, CO₂, Regolith',
+        age: '2.0+ Billion Years Trapped',
+        isru: 'Drinking Water & LOX/LH₂ Rocket Fuel',
+        body1: 'Near the Moon’s poles, the Sun hovers just above the horizon. Deep crater interiors never receive direct sunlight, plunging temperatures below -230°C (40 Kelvin)—colder than the surface of Pluto.',
+        physicsNote: 'In a vacuum, sunlit ice sublimates directly into gas. However, inside Permanently Shadowed Regions (PSRs), water molecules delivered by comets freeze solid indefinitely, providing crucial hydrogen and oxygen for future lunar bases.',
+        analyzed: false,
+        type: 'ice'
+      },
+      {
+        id: 'anorthosite_highland',
+        x: 710,
+        title: '4. Primordial Highland Anorthosite',
+        shortDesc: 'Ascend the steep highland ridge using 4WD Torque Mode to sample ancient crust.',
+        category: 'MAGMA OCEAN EVOLUTION',
+        apolloRef: 'APOLLO 16 // DESCARTES HIGHLANDS',
+        minerals: 'Calcium-Rich Plagioclase (CaAl₂Si₂O₈)',
+        age: '4.46 Billion Years',
+        isru: 'Aluminum, Silicon & Oxygen',
+        body1: 'Bright lunar highlands are composed largely of Ferroan Anorthosite—a rock formed when the newborn Moon was covered by a global ocean of molten magma. Light plagioclase crystals floated to the top like cream, forming the primordial crust.',
+        physicsNote: 'On steep 20°+ highland slopes, lunar gravity (1.62 m/s²) provides only 1/6th the normal force pressing tires into the soil. High wheel torque can easily exceed regolith shear strength, causing wheel slip!',
+        analyzed: false,
+        type: 'anorthosite'
+      },
+      {
+        id: 'alsep_seismometer',
+        x: 900,
+        title: '5. Lunar Geophysical & Seismic Station',
+        shortDesc: 'Reach the flat plateau at 900m East and deploy the Passive Seismic Experiment.',
+        category: 'INTERIOR GEOPHYSICS & MOONQUAKES',
+        apolloRef: 'APOLLO ALSEP NETWORK',
+        minerals: 'Crust-Mantle Boundary Telemetry',
+        age: 'Active Monitoring Station',
+        isru: 'Habitat Structural Hazard Mapping',
+        body1: 'Apollo seismometers revealed that the Moon is seismically active, experiencing deep moonquakes triggered by Earth’s tidal pull, meteorite impacts, and shallow tectonic fault slips up to magnitude 5.5.',
+        physicsNote: 'Because the Moon’s crust is dry, fractured, and rigid—lacking water to dampen vibrations—seismic waves scatter for up to an hour after an impact, making the Moon "ring like a bell."',
+        analyzed: false,
+        type: 'seismometer'
+      }
+    ];
+
+    // =========================================================================
+    // 3. CANVAS & SIMULATION STATE
+    // =========================================================================
+    const canvas = document.getElementById('simCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Scale: 1 meter in physics world = 26 pixels on screen
+    const PPM = 26;
+    const LUNAR_GRAVITY = 1.62; // m/s²
+
+    // Input State
+    const keys = {
+      left: false,
+      right: false,
+      brake: false,
+      gyroLeft: false,
+      gyroRight: false
+    };
+
+    // Rover Physical & Engineering State
+    const rover = {
+      x: 20,              // meters
+      y: 0,               // meters (positive is UP)
+      vx: 0,              // m/s
+      vy: 0,              // m/s
+      angle: 0,           // radians (positive = nose down in screen coords, handled carefully)
+      angularVel: 0,      // rad/s
+      mass: 210,          // kg (Lunar Roving Vehicle mass)
+      wheelBase: 2.3,     // meters
+      wheelRadius: 0.41,  // meters
+      wheelSpinAngle: 0,  // visual rotation
+      wheelOffsets: [-1.15, 0, 1.15], // Rear, Middle, Front bogie positions (m)
+      wheelContacts: [false, false, false],
+      wheelCompressions: [0, 0, 0],
+      
+      // Subsystems
+      lightsOn: false,
+      highTorqueMode: true, // true = 4WD High Torque, false = Eco Cruise
+      batteryWh: 850,
+      maxBatteryWh: 850,
+      solarWatts: 140,
+      drawWatts: 20,
+      sunExposure: 1.0,
+      slipRatio: 0,
+      distanceTraveled: 0,
+      samplesCollected: 0,
+      
+      // Drilling / Scanning state
+      isScanning: false,
+      scanProgress: 0,
+      activeTarget: null
+    };
+
+    // Particle Systems (Regolith Dust & Spectrometer Laser)
+    let dustParticles = [];
+    let stars = [];
+    let surfaceRocks = [];
+    let landerSite = { x: 12 };
+
+    // Camera State
+    const camera = {
+      x: 20,
+      y: 2,
+      zoom: 1.0
+    };
+
+    let simPaused = false;
+    let missionEnded = false;
+    let lastTimestamp = 0;
+    let tipTimer = 0;
+
+    // =========================================================================
+    // 4. PROCEDURAL LUNAR TERRAIN & SHADOWING ENGINE
+    // =========================================================================
+    // Deterministic height function h(x) in meters (positive = higher elevation)
+    function getTerrainHeight(x) {
+      // Base rolling lunar mare & highland elevation
+      let h = Math.sin(x * 0.025) * 1.4 + Math.cos(x * 0.062) * 0.75;
+
+      // Landing zone flat apron around x = 12..35
+      const landingBlend = Math.exp(-Math.pow((x - 20) / 18, 2));
+      h = h * (1 - landingBlend) + 0.2 * landingBlend;
+
+      // Crater 1: Shallow bowl near x = 80
+      h += craterProfile(x, 80, 18, 2.2, 0.5);
+
+      // Crater 2: Regolith Ejecta Rim near x = 290..315
+      h += craterProfile(x, 285, 24, 3.8, 1.1);
+
+      // Crater 3: Deep Permanently Shadowed Crater (PSR) at x = 505!
+      // Steep rim + deep cold trap floor
+      h += craterProfile(x, 505, 38, 8.8, 1.9);
+
+      // Highland Ridge climb between x = 620 and x = 760
+      if (x > 580) {
+        const ridgeProgress = Math.min(1, Math.max(0, (x - 580) / 140));
+        const smoothRidge = ridgeProgress * ridgeProgress * (3 - 2 * ridgeProgress);
+        h += smoothRidge * 12.5;
+      }
+
+      // Small crater at x = 665 on the highland slope
+      h += craterProfile(x, 665, 14, 1.8, 0.45);
+
+      // Plateau near x = 900 for Seismic Station
+      const plateauBlend = Math.exp(-Math.pow((x - 900) / 28, 2));
+      h = h * (1 - plateauBlend) + 12.2 * plateauBlend;
+
+      // Fine micro-undulations (regolith ripples)
+      h += Math.sin(x * 0.45) * 0.08 + Math.cos(x * 1.1) * 0.035;
+
+      return h;
+    }
+
+    // Realistic impact crater cross-section: raised ejecta rim + bowl depression
+    function craterProfile(x, center, radius, depth, rimHeight) {
+      const d = Math.abs(x - center);
+      if (d > radius * 1.65) return 0;
+      const rNorm = d / radius;
+      if (rNorm < 1.0) {
+        // Parabolic bowl
+        const bowl = -depth * (1 - rNorm * rNorm);
+        const rim = rimHeight * Math.pow(rNorm, 3);
+        return bowl + rim;
+      } else {
+        // Exponential decay outer ejecta blanket
+        const outer = rNorm - 1.0;
+        return rimHeight * Math.exp(-outer * 4.2);
+      }
+    }
+
+    // Terrain slope angle in radians (positive = uphill to the right)
+    function getTerrainSlope(x) {
+      const eps = 0.25;
+      const h1 = getTerrainHeight(x - eps);
+      const h2 = getTerrainHeight(x + eps);
+      return Math.atan2(h2 - h1, 2 * eps);
+    }
+
+    // Solar Raycast: Determines if point (x, y) is sunlit or in deep lunar shadow
+    // Sun is positioned at a low South-Polar elevation angle (~16 degrees from West-Southwest)
+    function computeSunExposure(x, y) {
+      const sunAngleRad = 15.5 * (Math.PI / 180); // Low polar sun angle
+      const tanSun = Math.tan(sunAngleRad);
+
+      // March rays toward the sun (left/West direction) up to 75 meters
+      let maxOcclusion = 0;
+      for (let dist = 2; dist <= 75; dist += 2.5) {
+        const sampleX = x - dist;
+        const rayY = y + dist * tanSun;
+        const terrainY = getTerrainHeight(sampleX);
+        if (terrainY > rayY) {
+          const depth = terrainY - rayY;
+          maxOcclusion = Math.max(maxOcclusion, Math.min(1, depth / 1.4));
+        }
+      }
+      return Math.max(0, 1 - maxOcclusion);
+    }
+
+    // Populate Starfield & Procedural Surface Rocks
+    function initEnvironment() {
+      stars = [];
+      for (let i = 0; i < 220; i++) {
+        stars.push({
+          rx: Math.random(),
+          ry: Math.random() * 0.72,
+          size: Math.random() < 0.8 ? 1.1 : 1.9,
+          alpha: 0.45 + Math.random() * 0.55
+        });
+      }
+
+      surfaceRocks = [];
+      // Deterministic rock placement across 1050m traverse
+      for (let rx = -15; rx < 1050; rx += 5.5) {
+        const seed = Math.sin(rx * 12.9898) * 43758.5453;
+        const frac = seed - Math.floor(seed);
+        if (frac > 0.32) {
+          const rockX = rx + (frac - 0.5) * 3.5;
+          // Keep landing pad clear
+          if (Math.abs(rockX - landerSite.x) < 6) continue;
+          surfaceRocks.push({
+            x: rockX,
+            y: getTerrainHeight(rockX),
+            radius: 0.14 + (frac * 0.38),
+            shade: 75 + Math.floor(frac * 45),
+            angle: frac * Math.PI
+          });
+        }
+      }
+    }
+
+    // =========================================================================
+    // 5. PHYSICS & ENGINEERING SIMULATION STEP
+    // =========================================================================
+    function updatePhysics(dt) {
+      if (simPaused || missionEnded) return;
+
+      // Clamp dt for stability
+      dt = Math.min(dt, 0.04);
+
+      // Handle Scanning / Drilling state
+      if (rover.isScanning) {
+        rover.vx *= 0.85;
+        rover.scanProgress += dt * 38; // ~2.6 seconds to complete core drill
+        rover.drawWatts = 190; // High spectrometer laser & drill power draw
+        rover.batteryWh = Math.max(0, rover.batteryWh - (rover.drawWatts * dt) / 3600);
+
+        const bar = document.getElementById('scanProgressBar');
+        const pct = document.getElementById('scanPercent');
+        const clampedPct = Math.min(100, Math.floor(rover.scanProgress));
+        if (bar) bar.style.width = `${clampedPct}%`;
+        if (pct) pct.textContent = `${clampedPct}% — SPECTRAL ANALYSIS`;
+
+        if (Math.floor(rover.scanProgress) % 18 === 0) {
+          audio.playScanTick(clampedPct / 100);
+        }
+
+        if (rover.scanProgress >= 100) {
+          completeScienceScan(rover.activeTarget);
+        }
+        return;
+      }
+
+      // 1. Evaluate Rocker-Bogie Wheel Contact with Terrain
+      const cosA = Math.cos(rover.angle);
+      const sinA = Math.sin(rover.angle);
+
+      let groundedWheels = 0;
+      let avgTerrainSlope = 0;
+      let totalNormalForce = 0;
+      let totalPitchTorque = 0;
+
+      // Suspension spring/damper parameters
+      const springK = 38.0;
+      const damperC = 7.5;
+      const restLegLength = 0.55; // chassis center to wheel center
+
+      for (let i = 0; i < 3; i++) {
+        const localX = rover.wheelOffsets[i];
+        // World position of wheel hub
+        const hubX = rover.x + localX * cosA + restLegLength * sinA;
+        const hubY = rover.y + localX * sinA - restLegLength * cosA;
+
+        const groundY = getTerrainHeight(hubX);
+        const penetration = (groundY + rover.wheelRadius) - hubY;
+
+        if (penetration > 0) {
+          groundedWheels++;
+          rover.wheelContacts[i] = true;
+          rover.wheelCompressions[i] = Math.min(0.28, penetration);
+
+          const slope = getTerrainSlope(hubX);
+          avgTerrainSlope += slope;
+
+          // Velocity of this wheel point
+          const pointVy = rover.vy + rover.angularVel * localX * cosA;
+          const springForce = Math.max(0, penetration * springK - pointVy * damperC);
+
+          totalNormalForce += springForce;
+          // Torque around center of mass
+          totalPitchTorque += localX * springForce;
+
+          // Prevent hard bottoming out of chassis
+          if (penetration > 0.34) {
+            rover.y += (penetration - 0.34) * 0.65;
+            if (rover.vy < 0) rover.vy *= 0.4;
+          }
+        } else {
+          rover.wheelContacts[i] = false;
+          rover.wheelCompressions[i] = Math.max(0, rover.wheelCompressions[i] - dt * 2);
+        }
+      }
+
+      if (groundedWheels > 0) {
+        avgTerrainSlope /= groundedWheels;
+      }
+
+      // 2. Gravity (1.62 m/s²) & Vertical Acceleration
+      const ay = -LUNAR_GRAVITY + (totalNormalForce / rover.mass) * Math.cos(rover.angle);
+      rover.vy += ay * dt;
+      rover.y += rover.vy * dt;
+
+      // 3. Drive Throttle, Regolith Traction & Slope Physics
+      let throttle = 0;
+      if (keys.right) throttle += 1;
+      if (keys.left) throttle -= 1;
+
+      // Disable drive motor if battery completely depleted
+      if (rover.batteryWh <= 0.1) {
+        throttle = 0;
+      }
+
+      const maxSpeed = rover.highTorqueMode ? 5.2 : 8.4; // m/s (~18-30 km/h)
+      const motorForceMax = rover.highTorqueMode ? 480 : 270; // Newtons
+
+      // Regolith static friction coefficient (~0.52 in loose lunar dust)
+      const muRegolith = rover.highTorqueMode ? 0.58 : 0.42;
+      const normalWeight = rover.mass * LUNAR_GRAVITY * Math.cos(avgTerrainSlope);
+      const maxTractionForce = normalWeight * muRegolith;
+
+      // Gravity component pulling rover downhill along terrain slope
+      const gravitySlopeForce = -rover.mass * LUNAR_GRAVITY * Math.sin(avgTerrainSlope);
+
+      let driveForce = 0;
+      let targetWheelOmega = rover.vx / rover.wheelRadius;
+
+      if (groundedWheels > 0) {
+        const contactRatio = groundedWheels / 3;
+        if (throttle !== 0) {
+          // Speed limiter curve
+          const speedFactor = Math.max(0, 1 - Math.abs(rover.vx) / maxSpeed);
+          const requestedForce = throttle * motorForceMax * (0.35 + 0.65 * speedFactor) * contactRatio;
+
+          // Check if requested wheel force exceeds regolith shear traction -> Wheel Slip!
+          if (Math.abs(requestedForce) > maxTractionForce * contactRatio) {
+            driveForce = Math.sign(requestedForce) * maxTractionForce * contactRatio;
+            const excessRatio = (Math.abs(requestedForce) - Math.abs(driveForce)) / motorForceMax;
+            rover.slipRatio = Math.min(96, Math.round(25 + excessRatio * 140));
+            targetWheelOmega = (rover.vx / rover.wheelRadius) + throttle * 9.5;
+          } else {
+            driveForce = requestedForce;
+            rover.slipRatio = Math.min(35, Math.round((Math.abs(requestedForce) / (maxTractionForce + 1)) * 18));
+            targetWheelOmega = (rover.vx / rover.wheelRadius) + throttle * 2.2;
+          }
+        } else {
+          rover.slipRatio = Math.max(0, rover.slipRatio - 4);
+        }
+
+        // Rolling resistance in soft lunar regolith (no air drag!)
+        const rollingResistance = -rover.vx * (keys.brake ? 185 : 22) * contactRatio;
+
+        const netAx = (driveForce + gravitySlopeForce + rollingResistance) / rover.mass;
+        rover.vx += netAx * dt;
+
+        // Static hold on gentle slopes when braked or nearly stopped without throttle
+        if (throttle === 0 && Math.abs(rover.vx) < 0.08 && Math.abs(avgTerrainSlope) < 0.28) {
+          rover.vx = 0;
+        }
+      } else {
+        // Ballistic vacuum flight (zero air resistance!)
+        rover.slipRatio = throttle !== 0 ? 100 : 0;
+        if (throttle !== 0) {
+          targetWheelOmega += throttle * 12 * dt;
+        }
+      }
+
+      // Integrate Horizontal Position & Track Distance
+      const dx = rover.vx * dt;
+      rover.x += dx;
+      rover.distanceTraveled += Math.abs(dx);
+
+      // Keep rover within simulated sector bounds (-10m to 1020m)
+      if (rover.x < -8) {
+        rover.x = -8;
+        rover.vx = Math.max(0, rover.vx);
+      } else if (rover.x > 1010) {
+        rover.x = 1010;
+        rover.vx = Math.min(0, rover.vx);
+      }
+
+      // 4. Pitch Dynamics & Reaction Wheel Attitude Control
+      // Reaction wheels allow astronauts/computers to adjust pitch even in low-gravity jumps
+      let gyroTorque = 0;
+      if (keys.gyroLeft) gyroTorque += 3.2;  // Nose up
+      if (keys.gyroRight) gyroTorque -= 3.2; // Nose down
+
+      // Natural alignment torque from suspension + rotational damping
+      const momentOfInertia = 165;
+      const angularAcc = (totalPitchTorque * 1.45) / momentOfInertia + gyroTorque - rover.angularVel * 2.8;
+      rover.angularVel += angularAcc * dt;
+      rover.angle += rover.angularVel * dt;
+
+      // Update visual wheel spin
+      rover.wheelSpinAngle += targetWheelOmega * dt;
+
+      // 5. Kick Up Ballistic Regolith Dust Particles (No wind turbulence!)
+      if (groundedWheels > 0 && (Math.abs(rover.vx) > 0.6 || rover.slipRatio > 22)) {
+        const emitChance = Math.min(0.85, (Math.abs(rover.vx) * 0.14) + (rover.slipRatio * 0.01));
+        if (Math.random() < emitChance) {
+          const wheelIdx = Math.floor(Math.random() * 3);
+          if (rover.wheelContacts[wheelIdx]) {
+            const wx = rover.x + rover.wheelOffsets[wheelIdx] * cosA;
+            const wy = getTerrainHeight(wx) + 0.08;
+            const kickDir = throttle !== 0 ? -Math.sign(throttle) : -Math.sign(rover.vx || 1);
+            const kickSpeed = (1.2 + Math.random() * 2.4) * (1 + rover.slipRatio * 0.015);
+            dustParticles.push({
+              x: wx,
+              y: wy,
+              vx: rover.vx * 0.3 + kickDir * kickSpeed,
+              vy: 0.8 + Math.random() * 1.9, // Parabolic arc under 1.62 m/s²
+              size: 1.8 + Math.random() * 2.6,
+              alpha: 0.75,
+              life: 1.0 + Math.random() * 0.7
+            });
+          }
+        }
+      }
+
+      // 6. Solar Power, Shadowing & Battery Management
+      rover.sunExposure = computeSunExposure(rover.x, rover.y + 0.8);
+      // Solar panel output scales with sun exposure and incidence angle relative to rover tilt
+      const panelAngleFactor = Math.max(0.2, Math.cos(rover.angle - 0.25));
+      rover.solarWatts = Math.round(165 * rover.sunExposure * panelAngleFactor);
+
+      // Power Draw Calculation (Watts)
+      const baseAvionicsW = 18;
+      const motorW = Math.abs(throttle) * (rover.highTorqueMode ? 115 : 65) * (1 + rover.slipRatio * 0.008);
+      const lightsW = rover.lightsOn ? 45 : 0;
+      const gyroW = (keys.gyroLeft || keys.gyroRight) ? 25 : 0;
+      rover.drawWatts = Math.round(baseAvionicsW + motorW + lightsW + gyroW);
+
+      // Net power in Watt-hours (scaled slightly for engaging gameplay pacing)
+      const netWatts = rover.solarWatts - rover.drawWatts;
+      const timeScaleFactor = 18; // Accelerates battery dynamics so solar/shadow decisions matter
+      rover.batteryWh = Math.max(0, Math.min(rover.maxBatteryWh, rover.batteryWh + (netWatts * dt * timeScaleFactor) / 3600));
+
+      // 7. Check Pitch / Rollover Safety & Battery Depletion
+      const pitchDeg = Math.abs(rover.angle * (180 / Math.PI));
+      if (pitchDeg > 68 && Math.abs(rover.vx) < 0.25 && groundedWheels > 0) {
+        tipTimer += dt;
+        if (tipTimer > 2.2) {
+          triggerMissionFailure(
+            'ROVER ROLLOVER EXCEEDED SAFE TILT',
+            'Excessive pitch angle on steep lunar terrain caused a loss of wheel traction and stability. Use Gyro Pitch Trim [Q/W] and reduce speed on crater walls.'
+          );
+        }
+      } else {
+        tipTimer = Math.max(0, tipTimer - dt);
+      }
+
+      if (rover.batteryWh <= 0 && rover.sunExposure < 0.15 && Math.abs(rover.vx) < 0.05) {
+        triggerMissionFailure(
+          'BATTERY DEPLETED IN PERMANENT SHADOW',
+          'Operating high-torque motors and spotlights inside a shadowed crater without solar recharge drained the main battery bus. Conserve power in shadows!'
+        );
+      }
+
+      // 8. Audio & Camera Smooth Follow
+      audio.updateDriveSound(Math.abs(rover.vx), Math.abs(throttle), groundedWheels, rover.slipRatio / 100);
+
+      const lookAhead = rover.vx * 1.15;
+      camera.x += (rover.x + lookAhead - camera.x) * Math.min(1, dt * 4.5);
+      camera.y += (rover.y + 1.8 - camera.y) * Math.min(1, dt * 3.5);
+    }
+
+    function updateParticles(dt) {
+      for (let i = dustParticles.length - 1; i >= 0; i--) {
+        const p = dustParticles[i];
+        // Pure vacuum ballistic trajectory: no air drag, exact 1.62 m/s² downward acceleration
+        p.vy -= LUNAR_GRAVITY * dt;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.life -= dt * 0.75;
+
+        const groundY = getTerrainHeight(p.x);
+        if (p.y <= groundY || p.life <= 0) {
+          dustParticles.splice(i, 1);
+        }
+      }
+    }
+
+    // =========================================================================
+    // 6. SCIENCE TARGET DETECTION & EDUCATIONAL LOGS
+    // =========================================================================
+    function getNextActiveMission() {
+      return SCIENCE_MISSIONS.find(m => !m.analyzed) || null;
+    }
+
+    function checkScienceProximity() {
+      const nextMission = getNextActiveMission();
+      const banner = document.getElementById('contextBanner');
+      const bannerText = document.getElementById('contextBannerText');
+      const bannerInner = document.getElementById('contextBannerInner');
+
+      // Check proximity to ANY unanalyzed mission
+      let nearby = null;
+      for (const m of SCIENCE_MISSIONS) {
+        if (!m.analyzed && Math.abs(rover.x - m.x) <= 6.5) {
+          nearby = m;
+          break;
+        }
+      }
+
+      rover.activeTarget = nearby;
+
+      if (nearby && !rover.isScanning) {
+        banner.classList.remove('opacity-0', 'scale-95');
+        banner.classList.add('opacity-100', 'scale-100');
+        bannerInner.className = 'hud-panel px-4 py-2 rounded-full border-emerald-400/80 flex items-center gap-2 shadow-lg';
+        bannerText.className = 'mono text-xs sm:text-sm font-bold text-emerald-300';
+        if (Math.abs(rover.vx) > 0.6) {
+          bannerText.textContent = `IN RANGE: ${nearby.title.toUpperCase()} — SLOW DOWN TO DRILL`;
+        } else {
+          bannerText.textContent = `TARGET LOCKED — PRESS [SPACE] OR "DRILL / SCAN" TO ANALYZE`;
+        }
+      } else if (rover.sunExposure < 0.2 && !rover.lightsOn) {
+        banner.classList.remove('opacity-0', 'scale-95');
+        banner.classList.add('opacity-100', 'scale-100');
+        bannerInner.className = 'hud-panel px-4 py-2 rounded-full border-amber-400/80 flex items-center gap-2 shadow-lg';
+        bannerText.className = 'mono text-xs sm:text-sm font-bold text-amber-300';
+        bannerText.textContent = 'ENTERING CRATER SHADOW (0W SOLAR) — PRESS [L] FOR HEADLIGHTS';
+      } else {
+        banner.classList.add('opacity-0', 'scale-95');
+        banner.classList.remove('opacity-100', 'scale-100');
+      }
+
+      // Update Top Mission Header
+      if (nextMission) {
+        const completedCount = SCIENCE_MISSIONS.filter(m => m.analyzed).length;
+        document.getElementById('missionCounter').textContent = `OBJ ${completedCount + 1}/${SCIENCE_MISSIONS.length}`;
+        document.getElementById('missionTitle').textContent = nextMission.title;
+        document.getElementById('missionDesc').textContent = nextMission.shortDesc;
+
+        const deltaX = nextMission.x - rover.x;
+        const absDist = Math.abs(Math.round(deltaX));
+        document.getElementById('targetDistVal').textContent = `${absDist} m`;
+        document.getElementById('targetDirVal').innerHTML = deltaX > 2 ? 'EAST &rarr;' : (deltaX < -2 ? '&larr; WEST' : 'ON SITE');
+      }
+    }
+
+    function initiateScienceScan() {
+      if (simPaused || missionEnded || rover.isScanning) return;
+
+      if (!rover.activeTarget) {
+        audio.playWarning();
+        showTemporaryBanner('NO GEOLOGICAL TARGET IN RANGE — DRIVE TO NEXT WAYPOINT');
+        return;
+      }
+
+      if (Math.abs(rover.vx) > 0.75) {
+        audio.playWarning();
+        showTemporaryBanner('BRING ROVER TO A STOP (< 0.7 m/s) BEFORE DEPLOYING DRILL');
+        return;
+      }
+
+      rover.isScanning = true;
+      rover.scanProgress = 0;
+      document.getElementById('scanTargetName').textContent = rover.activeTarget.title;
+      document.getElementById('scanOverlay').classList.remove('hidden');
+      audio.playBeep(660, 0.15, 'triangle', 0.08);
+    }
+
+    function showTemporaryBanner(msg) {
+      const banner = document.getElementById('contextBanner');
+      const bannerText = document.getElementById('contextBannerText');
+      bannerText.textContent = msg;
+      banner.classList.remove('opacity-0', 'scale-95');
+      banner.classList.add('opacity-100', 'scale-100');
+    }
+
+    function completeScienceScan(mission) {
+      rover.isScanning = false;
+      document.getElementById('scanOverlay').classList.add('hidden');
+      if (!mission) return;
+
+      mission.analyzed = true;
+      rover.samplesCollected++;
+      // Reward battery calibration boost so player isn't soft-locked after deep crater exploration
+      rover.batteryWh = Math.min(rover.maxBatteryWh, rover.batteryWh + 150);
+
+      audio.playSuccess();
+      simPaused = true;
+
+      // Populate Educational Science Log Modal
+      document.getElementById('modalCategory').textContent = mission.category;
+      document.getElementById('modalApolloRef').textContent = mission.apolloRef;
+      document.getElementById('modalTitle').textContent = mission.title;
+      document.getElementById('modalMinerals').textContent = mission.minerals;
+      document.getElementById('modalAge').textContent = mission.age;
+      document.getElementById('modalIsru').textContent = mission.isru;
+      document.getElementById('modalBody1').textContent = mission.body1;
+      document.getElementById('modalPhysicsNote').textContent = mission.physicsNote;
+
+      document.getElementById('scienceModal').classList.remove('hidden');
+    }
+
+    function triggerMissionFailure(title, reason) {
+      missionEnded = true;
+      audio.playWarning();
+      document.getElementById('endBadge').textContent = 'TELEMETRY ALERT // TRAVERSE HALTED';
+      document.getElementById('endBadge').className = 'inline-block px-3 py-1 rounded-full mono text-xs font-bold bg-rose-500/20 text-rose-300 border border-rose-400/50';
+      document.getElementById('endTitle').textContent = title;
+      document.getElementById('endDesc').textContent = reason;
+      document.getElementById('statSamples').textContent = `${rover.samplesCollected} / 5`;
+      document.getElementById('statDist').textContent = `${Math.round(rover.distanceTraveled)} m`;
+      document.getElementById('statBatt').textContent = `${Math.round((rover.batteryWh / rover.maxBatteryWh) * 100)}%`;
+      document.getElementById('endModal').classList.remove('hidden');
+    }
+
+    function triggerMissionSuccess() {
+      missionEnded = true;
+      audio.playSuccess();
+      document.getElementById('endBadge').textContent = 'ARTEMIS SCIENCE OBJECTIVE COMPLETE';
+      document.getElementById('endBadge').className = 'inline-block px-3 py-1 rounded-full mono text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/50';
+      document.getElementById('endTitle').textContent = 'Lunar Traverse Accomplished!';
+      document.getElementById('endDesc').textContent = 'You successfully navigated lunar gravity, crater shadows, and regolith slopes to collect all 5 geological samples and deploy the geophysical array.';
+      document.getElementById('statSamples').textContent = `5 / 5`;
+      document.getElementById('statDist').textContent = `${Math.round(rover.distanceTraveled)} m`;
+      document.getElementById('statBatt').textContent = `${Math.round((rover.batteryWh / rover.maxBatteryWh) * 100)}%`;
+      document.getElementById('endModal').classList.remove('hidden');
+    }
+
+    // =========================================================================
+    // 7. REALISTIC 2.5D RENDERING ENGINE (Earth, Sun, Shadows, Rover, Terrain)
+    // =========================================================================
+    function resizeCanvas() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = window.innerWidth * dpr;
+      canvas.height = window.innerHeight * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function worldToScreen(wx, wy) {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      const sx = w * 0.42 + (wx - camera.x) * PPM;
+      const sy = h * 0.64 - (wy - camera.y) * PPM;
+      return { x: sx, y: sy };
+    }
+
+    function render() {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+
+      // 1. Pitch-Black Vacuum Sky (Zero atmospheric scattering on the Moon!)
+      ctx.fillStyle = '#030408';
+      ctx.fillRect(0, 0, w, h);
+
+      // Crisp Non-Twinkling Stars (Stars don't twinkle without an atmosphere)
+      for (const s of stars) {
+        ctx.fillStyle = `rgba(241, 245, 249, ${s.alpha})`;
+        ctx.fillRect(s.rx * w, s.ry * h, s.size, s.size);
+      }
+
+      // 2. Distant Sun & Solar Corona (Low Polar Elevation)
+      const sunScreenX = w * 0.14;
+      const sunScreenY = h * 0.22;
+      const sunGrad = ctx.createRadialGradient(sunScreenX, sunScreenY, 4, sunScreenX, sunScreenY, 95);
+      sunGrad.addColorStop(0, 'rgba(255, 253, 240, 1)');
+      sunGrad.addColorStop(0.18, 'rgba(255, 245, 200, 0.55)');
+      sunGrad.addColorStop(0.5, 'rgba(255, 220, 150, 0.12)');
+      sunGrad.addColorStop(1, 'rgba(255, 220, 150, 0)');
+      ctx.fillStyle = sunGrad;
+      ctx.beginPath();
+      ctx.arc(sunScreenX, sunScreenY, 95, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 3. Crescent Earth Hanging in the Lunar Sky (Parallax drift)
+      const earthX = w * 0.78 - camera.x * 0.04;
+      const earthY = h * 0.21;
+      const earthR = Math.min(w, h) * 0.045;
+      drawEarth(earthX, earthY, Math.max(22, earthR));
+
+      // 4. Distant Lunar Mountain Massifs (2.5D Parallax Horizon)
+      drawDistantMountains(w, h);
+
+      // 5. Foreground Lunar Terrain & Cast Shadows
+      drawLunarTerrain(w, h);
+
+      // 6. Apollo-Style Descent Stage Lander at Base Camp (x = 12m)
+      drawLunarLander(landerSite.x, getTerrainHeight(landerSite.x));
+
+      // 7. Geological Science Targets & Waypoint Beacons
+      drawScienceTargets();
+
+      // 8. Rover Headlight Cone (Volumetric light beam on regolith)
+      if (rover.lightsOn) {
+        drawHeadlightBeam();
+      }
+
+      // 9. Articulated Rocker-Bogie Lunar Rover
+      drawRover();
+
+      // 10. Ballistic Regolith Dust Plumes
+      drawDustParticles();
+    }
+
+    function drawEarth(ex, ey, r) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(ex, ey, r, 0, Math.PI * 2);
+      ctx.clip();
+
+      // Ocean blue sphere
+      const oceanGrad = ctx.createRadialGradient(ex - r * 0.3, ey - r * 0.3, r * 0.1, ex, ey, r);
+      oceanGrad.addColorStop(0, '#38bdf8');
+      oceanGrad.addColorStop(0.65, '#0284c7');
+      oceanGrad.addColorStop(1, '#0c4a6e');
+      ctx.fillStyle = oceanGrad;
+      ctx.fillRect(ex - r, ey - r, r * 2, r * 2);
+
+      // Cloud swirls & continents
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+      ctx.beginPath();
+      ctx.ellipse(ex - r * 0.25, ey - r * 0.15, r * 0.45, r * 0.14, -0.3, 0, Math.PI * 2);
+      ctx.ellipse(ex - r * 0.1, ey + r * 0.35, r * 0.5, r * 0.12, 0.2, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Terminator Shadow (Matching sun angle from left)
+      const shadowGrad = ctx.createLinearGradient(ex - r * 0.2, ey, ex + r * 0.95, ey + r * 0.2);
+      shadowGrad.addColorStop(0, 'rgba(3, 4, 8, 0)');
+      shadowGrad.addColorStop(0.55, 'rgba(3, 4, 8, 0.88)');
+      shadowGrad.addColorStop(1, 'rgba(3, 4, 8, 0.98)');
+      ctx.fillStyle = shadowGrad;
+      ctx.fillRect(ex - r, ey - r, r * 2, r * 2);
+
+      ctx.restore();
+    }
+
+    function drawDistantMountains(w, h) {
+      // Far ridge
+      ctx.fillStyle = '#141820';
+      ctx.beginPath();
+      ctx.moveTo(0, h);
+      for (let sx = 0; sx <= w + 20; sx += 20) {
+        const wx = sx + camera.x * 3.5;
+        const mh = Math.sin(wx * 0.004) * 55 + Math.cos(wx * 0.011) * 32 + Math.sin(wx * 0.025) * 12;
+        ctx.lineTo(sx, h * 0.58 - mh);
+      }
+      ctx.lineTo(w, h);
+      ctx.closePath();
+      ctx.fill();
+
+      // Mid ridge with sunlit western slopes
+      ctx.fillStyle = '#1e242e';
+      ctx.beginPath();
+      ctx.moveTo(0, h);
+      for (let sx = 0; sx <= w + 16; sx += 16) {
+        const wx = sx + camera.x * 7.5;
+        const mh = Math.sin(wx * 0.007 + 1.2) * 42 + Math.cos(wx * 0.019) * 20;
+        ctx.lineTo(sx, h * 0.63 - mh);
+      }
+      ctx.lineTo(w, h);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    function drawLunarTerrain(w, h) {
+      const leftWorldX = camera.x - (w * 0.45) / PPM - 2;
+      const rightWorldX = camera.x + (w * 0.65) / PPM + 2;
+      const step = 0.35;
+
+      // Subsurface regolith cross-section fill
+      const groundGrad = ctx.createLinearGradient(0, h * 0.45, 0, h);
+      groundGrad.addColorStop(0, '#525866');
+      groundGrad.addColorStop(0.25, '#2b303a');
+      groundGrad.addColorStop(1, '#0d1017');
+
+      ctx.fillStyle = groundGrad;
+      ctx.beginPath();
+      const startPt = worldToScreen(leftWorldX, getTerrainHeight(leftWorldX));
+      ctx.moveTo(startPt.x, h);
+      ctx.lineTo(startPt.x, startPt.y);
+
+      for (let wx = leftWorldX; wx <= rightWorldX; wx += step) {
+        const wy = getTerrainHeight(wx);
+        const pt = worldToScreen(wx, wy);
+        ctx.lineTo(pt.x, pt.y);
+      }
+      const endPt = worldToScreen(rightWorldX, getTerrainHeight(rightWorldX));
+      ctx.lineTo(endPt.x, h);
+      ctx.closePath();
+      ctx.fill();
+
+      // Lit vs. Shadowed Top Crust Rim (2.5D relief shading)
+      for (let wx = leftWorldX; wx < rightWorldX; wx += step) {
+        const wy1 = getTerrainHeight(wx);
+        const wy2 = getTerrainHeight(wx + step);
+        const p1 = worldToScreen(wx, wy1);
+        const p2 = worldToScreen(wx + step, wy2);
+
+        const slope = Math.atan2(wy2 - wy1, step);
+        const sunExp = computeSunExposure(wx, wy1 + 0.1);
+
+        // Slopes facing the sun (negative slope = rising toward East, facing West sun) are bright silver
+        let brightness = 45;
+        if (sunExp > 0.15) {
+          const incidence = Math.max(0.15, Math.cos(slope + 0.35));
+          brightness = Math.floor(45 + sunExp * incidence * 165);
+        } else {
+          // Deep pitch-black crater shadow
+          brightness = 14;
+        }
+
+        ctx.strokeStyle = `rgb(${brightness}, ${brightness + 3}, ${brightness + 8})`;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+
+        // Darken subsurface column inside Permanently Shadowed Crater for dramatic visual cue
+        if (sunExp < 0.2) {
+          ctx.fillStyle = `rgba(3, 5, 10, ${(0.2 - sunExp) * 3.8})`;
+          ctx.fillRect(p1.x, p1.y, (p2.x - p1.x) + 1, h - p1.y);
+        }
+      }
+
+      // Surface Rocks & Boulders
+      for (const rock of surfaceRocks) {
+        if (rock.x < leftWorldX - 2 || rock.x > rightWorldX + 2) continue;
+        const pt = worldToScreen(rock.x, rock.y);
+        const rPx = rock.radius * PPM;
+        const sunExp = computeSunExposure(rock.x, rock.y + 0.2);
+        const shade = Math.floor(rock.shade * (0.25 + 0.75 * sunExp));
+
+        ctx.fillStyle = `rgb(${shade}, ${shade + 2}, ${shade + 5})`;
+        ctx.beginPath();
+        ctx.ellipse(pt.x, pt.y - rPx * 0.35, rPx, rPx * 0.65, rock.angle * 0.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawLunarLander(lx, ly) {
+      const pt = worldToScreen(lx, ly);
+      const s = PPM;
+
+      ctx.save();
+      ctx.translate(pt.x, pt.y);
+
+      // Landing Legs
+      ctx.strokeStyle = '#d4af37';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-1.2 * s, -1.2 * s);
+      ctx.lineTo(-2.1 * s, 0);
+      ctx.moveTo(1.2 * s, -1.2 * s);
+      ctx.lineTo(2.1 * s, 0);
+      ctx.stroke();
+
+      // Footpads
+      ctx.fillStyle = '#eab308';
+      ctx.fillRect(-2.4 * s, -3, 0.6 * s, 4);
+      ctx.fillRect(1.8 * s, -3, 0.6 * s, 4);
+
+      // Gold Kapton Foil Descent Stage
+      ctx.fillStyle = '#ca8a04';
+      ctx.strokeStyle = '#fef08a';
+      ctx.lineWidth = 1.5;
+      ctx.fillRect(-1.4 * s, -2.5 * s, 2.8 * s, 1.4 * s);
+      ctx.strokeRect(-1.4 * s, -2.5 * s, 2.8 * s, 1.4 * s);
+
+      // Ascent Cabin
+      ctx.fillStyle = '#cbd5e1';
+      ctx.beginPath();
+      ctx.arc(0, -3.2 * s, 1.05 * s, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Label
+      ctx.fillStyle = 'rgba(148, 163, 184, 0.8)';
+      ctx.font = '600 10px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('LANDER BASE', 0, -4.6 * s);
+
+      ctx.restore();
+    }
+
+    function drawScienceTargets() {
+      const time = performance.now() * 0.003;
+
+      for (const m of SCIENCE_MISSIONS) {
+        const wy = getTerrainHeight(m.x);
+        const pt = worldToScreen(m.x, wy);
+        if (pt.x < -120 || pt.x > window.innerWidth + 120) continue;
+
+        ctx.save();
+        ctx.translate(pt.x, pt.y);
+
+        // Geological Feature Visual (Basalt boulder, Ice crystals, Anorthosite spire, Seismometer)
+        if (m.type === 'basalt') {
+          ctx.fillStyle = '#1e293b';
+          ctx.strokeStyle = '#64748b';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(-26, 0);
+          ctx.lineTo(-18, -24);
+          ctx.lineTo(6, -30);
+          ctx.lineTo(28, -12);
+          ctx.lineTo(22, 0);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        } else if (m.type === 'ice') {
+          // Cyan glinting ice veins inside dark crater
+          ctx.fillStyle = '#0ea5e9';
+          ctx.shadowColor = '#38bdf8';
+          ctx.shadowBlur = 12;
+          for (let k = -16; k <= 16; k += 10) {
+            ctx.beginPath();
+            ctx.moveTo(k - 4, 0);
+            ctx.lineTo(k, -16 - Math.abs(k) * 0.3);
+            ctx.lineTo(k + 4, 0);
+            ctx.fill();
+          }
+          ctx.shadowBlur = 0;
+        } else if (m.type === 'anorthosite') {
+          ctx.fillStyle = '#e2e8f0';
+          ctx.beginPath();
+          ctx.moveTo(-22, 0);
+          ctx.lineTo(-8, -32);
+          ctx.lineTo(14, -22);
+          ctx.lineTo(24, 0);
+          ctx.closePath();
+          ctx.fill();
+        } else if (m.type === 'seismometer') {
+          // Gold ALSEP instrument package
+          ctx.fillStyle = '#f59e0b';
+          ctx.fillRect(-14, -18, 28, 18);
+          ctx.strokeStyle = '#fef3c7';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(0, -18);
+          ctx.lineTo(0, -38);
+          ctx.stroke();
+        } else {
+          // Ejecta glassy mound
+          ctx.fillStyle = '#475569';
+          ctx.beginPath();
+          ctx.arc(0, 0, 22, Math.PI, 0);
+          ctx.fill();
+        }
+
+        // Holographic Telemetry Waypoint Beacon
+        const pulse = 0.6 + 0.4 * Math.sin(time * 2);
+        const beaconColor = m.analyzed ? '#34d399' : '#38bdf8';
+
+        ctx.strokeStyle = beaconColor;
+        ctx.globalAlpha = m.analyzed ? 0.5 : pulse;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(0, -34);
+        ctx.lineTo(0, -95);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Diamond Marker
+        ctx.fillStyle = beaconColor;
+        ctx.beginPath();
+        ctx.moveTo(0, -108);
+        ctx.lineTo(8, -98);
+        ctx.lineTo(0, -88);
+        ctx.lineTo(-8, -98);
+        ctx.closePath();
+        ctx.fill();
+
+        // Status Tag
+        ctx.globalAlpha = 1;
+        ctx.font = '700 10px "JetBrains Mono", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(m.analyzed ? 'SAMPLED ✓' : `SITE ${m.id.split('_')[0].toUpperCase()}`, 0, -115);
+
+        ctx.restore();
+      }
+    }
+
+    function drawHeadlightBeam() {
+      const pt = worldToScreen(rover.x, rover.y);
+      ctx.save();
+      ctx.translate(pt.x, pt.y);
+      ctx.rotate(-rover.angle);
+
+      // LED Spotlight Cone projecting forward from rover mast
+      const beamGrad = ctx.createLinearGradient(25, -24, 290, 25);
+      beamGrad.addColorStop(0, 'rgba(224, 242, 254, 0.52)');
+      beamGrad.addColorStop(0.5, 'rgba(186, 230, 253, 0.22)');
+      beamGrad.addColorStop(1, 'rgba(186, 230, 253, 0)');
+
+      ctx.fillStyle = beamGrad;
+      ctx.beginPath();
+      ctx.moveTo(22, -26);
+      ctx.lineTo(310, -45);
+      ctx.lineTo(310, 75);
+      ctx.lineTo(22, -18);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.restore();
+    }
+
+    function drawRover() {
+      const pt = worldToScreen(rover.x, rover.y);
+      const s = PPM;
+
+      ctx.save();
+      ctx.translate(pt.x, pt.y);
+      // Note: Positive rover.angle means nose pitched UP in physics world, so rotate -rover.angle on canvas
+      ctx.rotate(-rover.angle);
+
+      // 1. Rocker-Bogie Titanium Suspension Struts
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 3.2;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      const legBaseY = 0.52 * s;
+      // Main differential pivot on chassis
+      ctx.beginPath();
+      ctx.moveTo(-0.35 * s, -0.1 * s);
+      ctx.lineTo(-1.15 * s, legBaseY - rover.wheelCompressions[0] * s);
+      ctx.moveTo(-0.35 * s, -0.1 * s);
+      ctx.lineTo(0.25 * s, 0.12 * s);
+      ctx.lineTo(0, legBaseY - rover.wheelCompressions[1] * s);
+      ctx.moveTo(0.25 * s, 0.12 * s);
+      ctx.lineTo(1.15 * s, legBaseY - rover.wheelCompressions[2] * s);
+      ctx.stroke();
+
+      // 2. Three Wire-Mesh Lunar Tires with Chevron Treads
+      for (let i = 0; i < 3; i++) {
+        const wx = rover.wheelOffsets[i] * s;
+        const wy = (legBaseY - rover.wheelCompressions[i] * s);
+        const r = rover.wheelRadius * s;
+
+        ctx.save();
+        ctx.translate(wx, wy);
+        ctx.rotate(rover.wheelSpinAngle);
+
+        // Tire outer mesh
+        ctx.fillStyle = '#1e293b';
+        ctx.strokeStyle = '#cbd5e1';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(0, 0, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // Chevron tread spokes (visualizes wheel rotation & slip!)
+        ctx.strokeStyle = '#64748b';
+        ctx.lineWidth = 1.6;
+        for (let a = 0; a < Math.PI * 2; a += Math.PI / 3) {
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(a) * (r * 0.35), Math.sin(a) * (r * 0.35));
+          ctx.lineTo(Math.cos(a) * (r * 0.92), Math.sin(a) * (r * 0.92));
+          ctx.stroke();
+        }
+
+        // Gold hubcap motor
+        ctx.fillStyle = '#eab308';
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 0.32, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+      }
+
+      // 3. Rover Chassis & Gold Thermal MLI Foil
+      ctx.fillStyle = '#d97706';
+      ctx.strokeStyle = '#fef3c7';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.roundRect(-1.05 * s, -0.45 * s, 2.1 * s, 0.48 * s, 6);
+      ctx.fill();
+      ctx.stroke();
+
+      // White Composite Avionics Deck
+      ctx.fillStyle = '#f8fafc';
+      ctx.beginPath();
+      ctx.roundRect(-0.95 * s, -0.58 * s, 1.9 * s, 0.16 * s, 4);
+      ctx.fill();
+
+      // 4. Angled Photovoltaic Solar Array Wing
+      ctx.save();
+      ctx.translate(-0.45 * s, -0.64 * s);
+      ctx.rotate(-0.18);
+      ctx.fillStyle = '#1e3a8a';
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 1.5;
+      ctx.fillRect(-0.65 * s, -0.06 * s, 1.3 * s, 0.1 * s);
+      ctx.strokeRect(-0.65 * s, -0.06 * s, 1.3 * s, 0.1 * s);
+      ctx.restore();
+
+      // 5. High-Gain Dish Antenna (Pointed toward Earth)
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-0.1 * s, -0.58 * s);
+      ctx.lineTo(-0.1 * s, -0.95 * s);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(-0.1 * s, -1.02 * s, 0.26 * s, 0.2 * Math.PI, 0.95 * Math.PI);
+      ctx.stroke();
+
+      // 6. Remote Sensing Mast & Stereoscopic NavCams + Headlight
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(0.72 * s, -0.58 * s);
+      ctx.lineTo(0.78 * s, -1.18 * s);
+      ctx.stroke();
+
+      // Camera Head
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(0.64 * s, -1.32 * s, 0.34 * s, 0.2 * s);
+      // Camera Lens
+      ctx.fillStyle = '#0284c7';
+      ctx.beginPath();
+      ctx.arc(0.92 * s, -1.22 * s, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Headlight Lamp Indicator
+      ctx.fillStyle = rover.lightsOn ? '#fef08a' : '#475569';
+      ctx.beginPath();
+      ctx.arc(0.95 * s, -0.95 * s, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 7. Active Laser Spectrometer Beam during Drilling
+      if (rover.isScanning) {
+        ctx.strokeStyle = '#ef4444';
+        ctx.shadowColor = '#ef4444';
+        ctx.shadowBlur = 10;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(0.85 * s, -0.2 * s);
+        ctx.lineTo(1.25 * s, 0.85 * s);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      }
+
+      ctx.restore();
+    }
+
+    function drawDustParticles() {
+      for (const p of dustParticles) {
+        const pt = worldToScreen(p.x, p.y);
+        ctx.fillStyle = `rgba(148, 155, 168, ${p.alpha * Math.min(1, p.life)})`;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // =========================================================================
+    // 8. HUD TELEMETRY UPDATES
+    // =========================================================================
+    function updateHUD() {
+      // Velocity
+      document.getElementById('telSpeed').textContent = `${Math.abs(rover.vx).toFixed(1)} m/s`;
+
+      // Pitch / Tilt Warning
+      const pitchDeg = rover.angle * (180 / Math.PI);
+      const absPitch = Math.abs(pitchDeg);
+      const pitchEl = document.getElementById('telPitch');
+      const pitchStatusEl = document.getElementById('telPitchStatus');
+      const pitchBox = document.getElementById('pitchBox');
+
+      pitchEl.textContent = `${pitchDeg >= 0 ? '+' : ''}${pitchDeg.toFixed(1)}°`;
+      if (absPitch > 36) {
+        pitchEl.className = 'mono text-xs sm:text-sm font-bold text-rose-400 animate-alert';
+        pitchStatusEl.textContent = 'TIP RISK!';
+        pitchStatusEl.className = 'mono text-[9px] text-rose-400 font-bold';
+        pitchBox.classList.add('border-rose-500/80');
+      } else if (absPitch > 22) {
+        pitchEl.className = 'mono text-xs sm:text-sm font-bold text-amber-400';
+        pitchStatusEl.textContent = 'STEEP';
+        pitchStatusEl.className = 'mono text-[9px] text-amber-400';
+        pitchBox.classList.remove('border-rose-500/80');
+      } else {
+        pitchEl.className = 'mono text-xs sm:text-sm font-bold text-emerald-400';
+        pitchStatusEl.textContent = 'NOMINAL';
+        pitchStatusEl.className = 'mono text-[9px] text-slate-500';
+        pitchBox.classList.remove('border-rose-500/80');
+      }
+
+      // Wheel Slip
+      const slipEl = document.getElementById('telSlip');
+      slipEl.textContent = `${rover.slipRatio}%`;
+      slipEl.className = rover.slipRatio > 45
+        ? 'mono text-xs sm:text-sm font-bold text-amber-400'
+        : 'mono text-xs sm:text-sm font-bold text-sky-300';
+
+      // Battery
+      const battPct = Math.round((rover.batteryWh / rover.maxBatteryWh) * 100);
+      const battEl = document.getElementById('telBattery');
+      battEl.textContent = `${battPct}%`;
+      document.getElementById('telWh').textContent = `${Math.round(rover.batteryWh)} Wh`;
+      battEl.className = battPct < 20
+        ? 'mono text-xs sm:text-sm font-bold text-rose-400 animate-alert'
+        : (battPct < 45 ? 'mono text-xs sm:text-sm font-bold text-amber-400' : 'mono text-xs sm:text-sm font-bold text-emerald-400');
+
+      // Solar & Draw
+      const solarEl = document.getElementById('telSolar');
+      const shadowStatusEl = document.getElementById('telShadowStatus');
+      solarEl.textContent = `+${rover.solarWatts}W`;
+      document.getElementById('telDraw').textContent = `-${rover.drawWatts}W`;
+
+      if (rover.sunExposure < 0.2) {
+        shadowStatusEl.textContent = 'CRATER SHADOW';
+        shadowStatusEl.className = 'mono text-[9px] text-sky-400 font-bold';
+      } else {
+        shadowStatusEl.textContent = 'SUNLIT';
+        shadowStatusEl.className = 'mono text-[9px] text-amber-400/90';
+      }
+
+      // Samples
+      document.getElementById('telSamples').textContent = `${rover.samplesCollected} / ${SCIENCE_MISSIONS.length}`;
+    }
+
+    // =========================================================================
+    // 9. CONTROLS & UI EVENT BINDINGS
+    // =========================================================================
+    function toggleLights() {
+      rover.lightsOn = !rover.lightsOn;
+      const btn = document.getElementById('btnLights');
+      const label = document.getElementById('lightStateLabel');
+      if (rover.lightsOn) {
+        btn.classList.add('warn-active');
+        label.textContent = 'ON [L]';
+        audio.playBeep(720, 0.08, 'sine', 0.06);
+      } else {
+        btn.classList.remove('warn-active');
+        label.textContent = 'OFF [L]';
+        audio.playBeep(520, 0.08, 'sine', 0.06);
+      }
+    }
+
+    function toggleDriveMode() {
+      rover.highTorqueMode = !rover.highTorqueMode;
+      const title = document.getElementById('driveModeTitle');
+      if (rover.highTorqueMode) {
+        title.textContent = '4WD TORQUE';
+        title.className = 'text-xs sm:text-sm font-bold text-emerald-300';
+      } else {
+        title.textContent = 'ECO CRUISE';
+        title.className = 'text-xs sm:text-sm font-bold text-sky-300';
+      }
+      audio.playBeep(640, 0.09, 'triangle', 0.06);
+    }
+
+    function bindHoldButton(btnId, keyProp) {
+      const btn = document.getElementById(btnId);
+      const start = (e) => {
+        e.preventDefault();
+        keys[keyProp] = true;
+        btn.classList.add('active');
+      };
+      const end = (e) => {
+        e.preventDefault();
+        keys[keyProp] = false;
+        btn.classList.remove('active');
+      };
+      btn.addEventListener('mousedown', start);
+      btn.addEventListener('mouseup', end);
+      btn.addEventListener('mouseleave', end);
+      btn.addEventListener('touchstart', start, { passive: false });
+      btn.addEventListener('touchend', end, { passive: false });
+      btn.addEventListener('touchcancel', end, { passive: false });
+    }
+
+    function setupControls() {
+      bindHoldButton('btnLeft', 'left');
+      bindHoldButton('btnRight', 'right');
+      bindHoldButton('btnBrake', 'brake');
+      bindHoldButton('btnGyroLeft', 'gyroLeft');
+      bindHoldButton('btnGyroRight', 'gyroRight');
+
+      document.getElementById('btnLights').addEventListener('click', toggleLights);
+      document.getElementById('btnDriveMode').addEventListener('click', toggleDriveMode);
+      document.getElementById('btnAnalyze').addEventListener('click', initiateScienceScan);
+
+      document.getElementById('audioToggleBtn').addEventListener('click', () => {
+        const isOn = audio.toggle();
+        const btn = document.getElementById('audioToggleBtn');
+        btn.textContent = isOn ? 'AUDIO: ON' : 'AUDIO: OFF';
+        btn.classList.toggle('text-emerald-300', isOn);
+        btn.classList.toggle('border-emerald-500/50', isOn);
+        if (isOn) audio.playBeep(660, 0.1, 'sine', 0.07);
+      });
+
+      document.getElementById('modalContinueBtn').addEventListener('click', () => {
+        document.getElementById('scienceModal').classList.add('hidden');
+        simPaused = false;
+        if (rover.samplesCollected >= SCIENCE_MISSIONS.length) {
+          triggerMissionSuccess();
+        }
+      });
+
+      document.getElementById('restartBtn').addEventListener('click', resetSimulation);
+
+      // Keyboard Listeners
+      window.addEventListener('keydown', (e) => {
+        if (e.repeat) return;
+        switch (e.key.toLowerCase()) {
+          case 'a':
+          case 'arrowleft':
+            keys.left = true;
+            document.getElementById('btnLeft').classList.add('active');
+            break;
+          case 'd':
+          case 'arrowright':
+            keys.right = true;
+            document.getElementById('btnRight').classList.add('active');
+            break;
+          case 's':
+          case 'arrowdown':
+            keys.brake = true;
+            document.getElementById('btnBrake').classList.add('active');
+            break;
+          case 'q':
+            keys.gyroLeft = true;
+            document.getElementById('btnGyroLeft').classList.add('active');
+            break;
+          case 'w':
+          case 'arrowup':
+            keys.gyroRight = true;
+            document.getElementById('btnGyroRight').classList.add('active');
+            break;
+          case 'l':
+            toggleLights();
+            break;
+          case 'm':
+            toggleDriveMode();
+            break;
+          case ' ':
+          case 'e':
+            e.preventDefault();
+            if (!document.getElementById('scienceModal').classList.contains('hidden')) {
+              document.getElementById('modalContinueBtn').click();
+            } else {
+              initiateScienceScan();
+            }
+            break;
+        }
+      });
+
+      window.addEventListener('keyup', (e) => {
+        switch (e.key.toLowerCase()) {
+          case 'a':
+          case 'arrowleft':
+            keys.left = false;
+            document.getElementById('btnLeft').classList.remove('active');
+            break;
+          case 'd':
+          case 'arrowright':
+            keys.right = false;
+            document.getElementById('btnRight').classList.remove('active');
+            break;
+          case 's':
+          case 'arrowdown':
+            keys.brake = false;
+            document.getElementById('btnBrake').classList.remove('active');
+            break;
+          case 'q':
+            keys.gyroLeft = false;
+            document.getElementById('btnGyroLeft').classList.remove('active');
+            break;
+          case 'w':
+          case 'arrowup':
+            keys.gyroRight = false;
+            document.getElementById('btnGyroRight').classList.remove('active');
+            break;
+        }
+      });
+    }
+
+    function resetSimulation() {
+      rover.x = 20;
+      rover.y = getTerrainHeight(20) + 0.6;
+      rover.vx = 0;
+      rover.vy = 0;
+      rover.angle = 0;
+      rover.angularVel = 0;
+      rover.batteryWh = 850;
+      rover.lightsOn = false;
+      rover.highTorqueMode = true;
+      rover.distanceTraveled = 0;
+      rover.samplesCollected = 0;
+      rover.isScanning = false;
+      rover.scanProgress = 0;
+
+      for (const m of SCIENCE_MISSIONS) {
+        m.analyzed = false;
+      }
+
+      dustParticles = [];
+      camera.x = rover.x;
+      camera.y = rover.y + 1.8;
+      simPaused = false;
+      missionEnded = false;
+      tipTimer = 0;
+
+      document.getElementById('endModal').classList.add('hidden');
+      document.getElementById('scienceModal').classList.add('hidden');
+      document.getElementById('scanOverlay').classList.add('hidden');
+      document.getElementById('btnLights').classList.remove('warn-active');
+      document.getElementById('lightStateLabel').textContent = 'OFF [L]';
+      document.getElementById('driveModeTitle').textContent = '4WD TORQUE';
+    }
+
+    // =========================================================================
+    // 10. MAIN ANIMATION LOOP
+    // =========================================================================
+    function mainLoop(timestamp) {
+      if (!lastTimestamp) lastTimestamp = timestamp;
+      const dt = (timestamp - lastTimestamp) / 1000;
+      lastTimestamp = timestamp;
+
+      updatePhysics(dt);
+      updateParticles(dt);
+      checkScienceProximity();
+      updateHUD();
+      render();
+
+      requestAnimationFrame(mainLoop);
+    }
+
+    window.onload = function () {
+      resizeCanvas();
+      window.addEventListener('resize', resizeCanvas);
+      initEnvironment();
+      setupControls();
+      resetSimulation();
+      requestAnimationFrame(mainLoop);
+    };
+  </script>
+</body>
+</html>
