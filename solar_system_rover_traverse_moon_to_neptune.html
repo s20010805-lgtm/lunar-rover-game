@@ -1,0 +1,2647 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>ARTEMIS TRAVERSE // Lunar Rover Science Simulation</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --nasa-blue: #0b3d91;
+      --nasa-red: #fc3d21;
+      --hud-bg: rgba(10, 14, 22, 0.86);
+      --hud-border: rgba(148, 163, 184, 0.25);
+      --accent-cyan: #38bdf8;
+      --accent-amber: #fbbf24;
+      --accent-emerald: #34d399;
+    }
+
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    body, html {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #030408;
+      font-family: 'Space Grotesk', sans-serif;
+      color: #f1f5f9;
+    }
+
+    .mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* NASA JPL Mission Control Styling */
+    .hud-panel {
+      background: var(--hud-bg);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--hud-border);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.65);
+    }
+
+    .control-btn {
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+      transition: all 0.12s ease;
+      touch-action: manipulation;
+    }
+
+    .control-btn:active, .control-btn.active {
+      transform: translateY(1px) scale(0.98);
+      border-color: var(--accent-cyan);
+      background: rgba(14, 116, 144, 0.45);
+      box-shadow: 0 0 14px rgba(56, 189, 248, 0.35);
+    }
+
+    .control-btn.warn-active {
+      border-color: var(--accent-amber);
+      background: rgba(180, 83, 9, 0.45);
+      box-shadow: 0 0 14px rgba(251, 191, 36, 0.35);
+    }
+
+    .scanline {
+      background: linear-gradient(
+        to bottom,
+        rgba(255,255,255,0),
+        rgba(255,255,255,0) 50%,
+        rgba(0,0,0,0.18) 50%,
+        rgba(0,0,0,0.18)
+      );
+      background-size: 100% 4px;
+      pointer-events: none;
+    }
+
+    @keyframes pulseAlert {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+
+    .animate-alert {
+      animation: pulseAlert 0.8s infinite;
+    }
+
+    /* Custom Scrollbar for Science Log */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.5);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(148, 163, 184, 0.4);
+      border-radius: 3px;
+    }
+  </style>
+</head>
+<body class="relative w-full h-full">
+
+  <!-- Main Simulation Canvas -->
+  <canvas id="simCanvas"></canvas>
+
+  <!-- Subtle CRT/Telemetry Scanline Overlay -->
+  <div class="fixed inset-0 scanline z-10 opacity-35"></div>
+
+  <!-- Top Mission Control HUD -->
+  <header class="fixed top-0 left-0 right-0 z-20 p-2 sm:p-3 flex flex-col lg:flex-row justify-between items-stretch lg:items-start gap-2 pointer-events-none">
+    
+    <!-- Left: Mission Header & Active Objective -->
+    <div class="hud-panel rounded-xl p-2.5 sm:p-3.5 max-w-xl pointer-events-auto flex flex-col gap-1.5">
+      <div class="flex items-center justify-between gap-2 border-b border-slate-700/70 pb-1.5">
+        <div class="flex items-center gap-2">
+          <span id="planetIndicatorDot" class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]"></span>
+          <span id="planetHeaderTag" class="mono text-[11px] sm:text-xs font-bold tracking-wider text-sky-400 uppercase">WORLD 1/6 // EARTH'S MOON</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span id="audioToggleBtn" role="button" tabindex="0" class="mono text-[11px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 cursor-pointer text-slate-300">
+            AUDIO: OFF
+          </span>
+          <span id="missionCounter" class="mono text-[11px] px-2 py-0.5 rounded bg-sky-950/90 border border-sky-500/40 text-sky-300 font-semibold">
+            OBJ 1/10
+          </span>
+        </div>
+      </div>
+
+      <!-- Current Waypoint Objective -->
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div id="missionTitle" class="text-sm sm:text-base font-bold text-white leading-tight">
+            1. Mare Basalt Regolith Survey
+          </div>
+          <p id="missionDesc" class="text-xs text-slate-300 mt-0.5 leading-snug">
+            Drive East to the dark volcanic basalt outcrop. Stop near marker and run Spectrometer/Drill.
+          </p>
+        </div>
+        <div class="text-right shrink-0 bg-slate-900/90 px-2.5 py-1.5 rounded-lg border border-slate-700/80">
+          <div class="mono text-[10px] text-slate-400 uppercase">TARGET DIST</div>
+          <div id="targetDistVal" class="mono text-sm sm:text-base font-bold text-amber-400">120 m</div>
+          <div id="targetDirVal" class="mono text-[10px] text-sky-400">EAST &rarr;</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Real-Time Engineering Telemetry Strip -->
+    <div class="hud-panel rounded-xl p-2 sm:p-3 pointer-events-auto grid grid-cols-4 sm:grid-cols-6 gap-2 sm:gap-3 text-center">
+      <!-- Velocity -->
+      <div class="bg-slate-900/75 rounded-lg px-2 py-1 border border-slate-800">
+        <div class="mono text-[9px] sm:text-[10px] text-slate-400">VELOCITY</div>
+        <div id="telSpeed" class="mono text-xs sm:text-sm font-bold text-white">0.0 m/s</div>
+        <div id="telGravity" class="mono text-[9px] text-slate-500">g=1.62m/s²</div>
+      </div>
+
+      <!-- Pitch / Tilt -->
+      <div id="pitchBox" class="bg-slate-900/75 rounded-lg px-2 py-1 border border-slate-800 transition-colors">
+        <div class="mono text-[9px] sm:text-[10px] text-slate-400">PITCH / TILT</div>
+        <div id="telPitch" class="mono text-xs sm:text-sm font-bold text-emerald-400">0.0°</div>
+        <div id="telPitchStatus" class="mono text-[9px] text-slate-500">NOMINAL</div>
+      </div>
+
+      <!-- Wheel Slip -->
+      <div class="bg-slate-900/75 rounded-lg px-2 py-1 border border-slate-800">
+        <div class="mono text-[9px] sm:text-[10px] text-slate-400">WHEEL SLIP</div>
+        <div id="telSlip" class="mono text-xs sm:text-sm font-bold text-sky-300">0%</div>
+        <div id="telTraction" class="mono text-[9px] text-slate-500">REGOLITH</div>
+      </div>
+
+      <!-- Battery Charge -->
+      <div id="batteryBox" class="bg-slate-900/75 rounded-lg px-2 py-1 border border-slate-800">
+        <div class="mono text-[9px] sm:text-[10px] text-slate-400">BATTERY</div>
+        <div id="telBattery" class="mono text-xs sm:text-sm font-bold text-emerald-400">100%</div>
+        <div id="telWh" class="mono text-[9px] text-slate-400">850 Wh</div>
+      </div>
+
+      <!-- Power Balance (Solar vs Draw) -->
+      <div class="hidden sm:block bg-slate-900/75 rounded-lg px-2 py-1 border border-slate-800">
+        <div class="mono text-[10px] text-slate-400">SOLAR / DRAW</div>
+        <div class="mono text-xs font-bold">
+          <span id="telSolar" class="text-amber-300">+140W</span>
+          <span class="text-slate-500">/</span>
+          <span id="telDraw" class="text-rose-400">-25W</span>
+        </div>
+        <div id="telShadowStatus" class="mono text-[9px] text-amber-400/90">SUNLIT</div>
+      </div>
+
+      <!-- Sample Core Storage -->
+      <div class="hidden sm:block bg-slate-900/75 rounded-lg px-2 py-1 border border-slate-800">
+        <div class="mono text-[10px] text-slate-400">CORE SAMPLES</div>
+        <div id="telSamples" class="mono text-sm font-bold text-purple-300">0 / 10</div>
+        <div id="telPlanetStage" class="mono text-[9px] text-slate-500">STAGE 1/6</div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Contextual Prompt Banner (Appears when near science target or low battery/tilt) -->
+  <div id="contextBanner" class="fixed top-36 sm:top-28 left-1/2 -translate-x-1/2 z-20 pointer-events-none transition-all duration-200 opacity-0 scale-95">
+    <div id="contextBannerInner" class="hud-panel px-4 py-2 rounded-full border-sky-400/60 flex items-center gap-2 shadow-lg">
+      <span class="w-2 h-2 rounded-full bg-sky-400 animate-ping"></span>
+      <span id="contextBannerText" class="mono text-xs sm:text-sm font-semibold text-sky-200">
+        TARGET IN RANGE — PRESS [SPACE / E] OR "ANALYZE" TO DEPLOY SPECTROMETER
+      </span>
+    </div>
+  </div>
+
+  <!-- Science Drill / Spectrometer Progress Bar Overlay -->
+  <div id="scanOverlay" class="fixed top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 hidden pointer-events-none">
+    <div class="hud-panel rounded-2xl p-4 sm:p-5 w-72 sm:w-80 border-sky-400/70 text-center">
+      <div class="mono text-xs font-bold text-sky-400 tracking-widest uppercase mb-1">LASER SPECTROMETER & CORE DRILL</div>
+      <div id="scanTargetName" class="text-sm font-semibold text-white mb-3">Sampling Lunar Regolith...</div>
+      <div class="w-full h-3 bg-slate-900 rounded-full overflow-hidden border border-slate-700 p-0.5">
+        <div id="scanProgressBar" class="h-full bg-gradient-to-r from-sky-500 to-emerald-400 rounded-full transition-all duration-75" style="width: 0%"></div>
+      </div>
+      <div id="scanPercent" class="mono text-xs text-slate-300 mt-1.5">0% — VAPORIZING SAMPLE</div>
+    </div>
+  </div>
+
+  <!-- Bottom Control Deck (Keyboard + Touch Friendly) -->
+  <footer class="fixed bottom-0 left-0 right-0 z-20 p-2 sm:p-4 flex flex-col sm:flex-row justify-between items-center gap-2 pointer-events-none">
+    
+    <!-- Left Controls: Drive Reverse / Forward -->
+    <div class="flex items-center gap-2 sm:gap-3 pointer-events-auto order-2 sm:order-1 w-full sm:w-auto justify-between sm:justify-start">
+      <div class="flex items-center gap-2">
+        <button id="btnLeft" class="control-btn rounded-xl px-4 py-3 sm:px-5 sm:py-3.5 flex flex-col items-center justify-center min-w-[72px] sm:min-w-[84px]">
+          <span class="text-base sm:text-lg font-bold text-white">&larr; REV</span>
+          <span class="mono text-[10px] text-slate-400">[A / &larr;]</span>
+        </button>
+        <button id="btnRight" class="control-btn rounded-xl px-4 py-3 sm:px-5 sm:py-3.5 flex flex-col items-center justify-center min-w-[72px] sm:min-w-[84px]">
+          <span class="text-base sm:text-lg font-bold text-white">FWD &rarr;</span>
+          <span class="mono text-[10px] text-slate-400">[D / &rarr;]</span>
+        </button>
+      </div>
+
+      <!-- Center Subsystem Toggles -->
+      <div class="flex items-center gap-1.5 sm:gap-2">
+        <button id="btnLights" class="control-btn rounded-xl px-3 py-2.5 sm:px-3.5 sm:py-3 flex flex-col items-center justify-center">
+          <span class="text-xs sm:text-sm font-bold text-amber-300">LIGHTS</span>
+          <span id="lightStateLabel" class="mono text-[10px] text-slate-300">OFF [L]</span>
+        </button>
+
+        <button id="btnDriveMode" class="control-btn rounded-xl px-3 py-2.5 sm:px-3.5 sm:py-3 flex flex-col items-center justify-center">
+          <span id="driveModeTitle" class="text-xs sm:text-sm font-bold text-emerald-300">4WD TORQUE</span>
+          <span class="mono text-[10px] text-slate-300">MODE [M]</span>
+        </button>
+
+        <button id="btnAnalyze" class="control-btn rounded-xl px-3.5 py-2.5 sm:px-4 sm:py-3 flex flex-col items-center justify-center border-sky-500/60">
+          <span class="text-xs sm:text-sm font-bold text-sky-300">DRILL / SCAN</span>
+          <span class="mono text-[10px] text-slate-300">[SPACE]</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Right Controls: Reaction Wheel Pitch Trim & Brake -->
+    <div class="flex items-center gap-2 pointer-events-auto order-1 sm:order-2 self-end sm:self-auto">
+      <button id="btnBrake" class="control-btn rounded-xl px-3.5 py-2.5 sm:px-4 sm:py-3 flex flex-col items-center justify-center">
+        <span class="text-xs sm:text-sm font-bold text-rose-400">BRAKE</span>
+        <span class="mono text-[10px] text-slate-400">[S / &darr;]</span>
+      </button>
+      <button id="btnGyroLeft" title="Pitch Nose Up (Reaction Wheel)" class="control-btn rounded-xl px-3 py-2.5 sm:px-3.5 sm:py-3 flex flex-col items-center justify-center">
+        <span class="text-xs sm:text-sm font-bold text-slate-200">&#8634; GYRO</span>
+        <span class="mono text-[10px] text-slate-400">[Q]</span>
+      </button>
+      <button id="btnGyroRight" title="Pitch Nose Down (Reaction Wheel)" class="control-btn rounded-xl px-3 py-2.5 sm:px-3.5 sm:py-3 flex flex-col items-center justify-center">
+        <span class="text-xs sm:text-sm font-bold text-slate-200">GYRO &#8635;</span>
+        <span class="mono text-[10px] text-slate-400">[W / &uarr;]</span>
+      </button>
+    </div>
+  </footer>
+
+  <!-- Educational Science Log Modal -->
+  <div id="scienceModal" class="fixed inset-0 z-40 bg-black/75 backdrop-blur-sm hidden flex items-center justify-center p-3 sm:p-6">
+    <div class="hud-panel rounded-2xl max-w-2xl w-full max-h-[88vh] flex flex-col border-sky-400/50 overflow-hidden shadow-2xl">
+      <!-- Modal Header -->
+      <div class="bg-slate-900/95 px-5 py-3.5 border-b border-slate-700 flex items-center justify-between">
+        <div class="flex items-center gap-2.5">
+          <span class="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/50 mono text-xs font-bold text-emerald-300">SAMPLE LOGGED</span>
+          <h2 id="modalCategory" class="mono text-xs sm:text-sm text-sky-400 uppercase tracking-wider font-semibold">PLANETARY GEOLOGY</h2>
+        </div>
+        <span id="modalApolloRef" class="mono text-xs text-amber-300 font-semibold">APOLLO 15 / ARTEMIS</span>
+      </div>
+
+      <!-- Modal Content -->
+      <div class="p-5 sm:p-6 overflow-y-auto space-y-4">
+        <h3 id="modalTitle" class="text-xl sm:text-2xl font-bold text-white">Mare Basalt & Volcanic Glass</h3>
+        
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5 bg-slate-950/70 p-3 rounded-xl border border-slate-800">
+          <div>
+            <div class="mono text-[10px] text-slate-400">MINERALOGY</div>
+            <div id="modalMinerals" class="mono text-xs font-semibold text-sky-300">Pyroxene, Ilmenite (FeTiO₃)</div>
+          </div>
+          <div>
+            <div class="mono text-[10px] text-slate-400">AGE ESTIMATE</div>
+            <div id="modalAge" class="mono text-xs font-semibold text-amber-300">3.3 Billion Years</div>
+          </div>
+          <div class="col-span-2 sm:col-span-1">
+            <div class="mono text-[10px] text-slate-400">ISRU VALUE</div>
+            <div id="modalIsru" class="mono text-xs font-semibold text-emerald-400">O₂ & Titanium Extraction</div>
+          </div>
+        </div>
+
+        <div class="space-y-2.5 text-sm sm:text-base text-slate-200 leading-relaxed">
+          <p id="modalBody1"></p>
+          <div class="bg-sky-950/40 border-l-4 border-sky-400 p-3.5 rounded-r-lg">
+            <div class="mono text-xs font-bold text-sky-300 uppercase mb-1">LUNAR PHYSICS & ENGINEERING NOTE</div>
+            <p id="modalPhysicsNote" class="text-xs sm:text-sm text-slate-300"></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="bg-slate-900/95 px-5 py-3.5 border-t border-slate-700 flex items-center justify-between gap-3">
+        <span class="mono text-xs text-slate-400">TELEMETRY TRANSMITTED TO ORBITAL RELAY</span>
+        <button id="modalContinueBtn" class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm tracking-wide transition cursor-pointer shadow-lg shadow-emerald-600/25">
+          RESUME TRAVERSE &rarr;
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mission Complete / Planetary Teleport Modal -->
+  <div id="endModal" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-md hidden flex items-center justify-center p-4">
+    <div class="hud-panel rounded-2xl max-w-lg w-full p-6 border-slate-600 text-center space-y-4">
+      <div id="endBadge" class="inline-block px-3 py-1 rounded-full mono text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/50">
+        PLANETARY SECTOR COMPLETE
+      </div>
+      <h2 id="endTitle" class="text-2xl sm:text-3xl font-bold text-white">Lunar Traverse Complete!</h2>
+      <p id="endDesc" class="text-sm text-slate-300 leading-relaxed">
+        All geological core samples and geophysical instruments have been successfully analyzed. Quantum-Relay Teleportation sequence primed for the next world!
+      </p>
+      <div id="endStats" class="grid grid-cols-3 gap-2 bg-slate-900/90 p-3 rounded-xl border border-slate-800 mono text-xs">
+        <div>
+          <div class="text-slate-400 text-[10px]">WORLD SAMPLES</div>
+          <div id="statSamples" class="text-emerald-400 font-bold text-sm">10 / 10</div>
+        </div>
+        <div>
+          <div class="text-slate-400 text-[10px]">TOTAL TRAVERSE</div>
+          <div id="statDist" class="text-sky-400 font-bold text-sm">0 m</div>
+        </div>
+        <div>
+          <div class="text-slate-400 text-[10px]">NEXT GRAVITY</div>
+          <div id="statBatt" class="text-amber-400 font-bold text-sm">3.72 m/s²</div>
+        </div>
+      </div>
+      <button id="restartBtn" class="w-full py-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-sm tracking-wide transition cursor-pointer shadow-lg shadow-sky-600/30">
+        INITIATE TELEPORT TO MARS &rarr;
+      </button>
+    </div>
+  </div>
+
+  <!-- Quantum Teleportation Visual Warp Overlay -->
+  <div id="teleportFlash" class="fixed inset-0 z-50 pointer-events-none opacity-0 transition-opacity duration-500 bg-gradient-to-r from-sky-400 via-white to-indigo-400 flex items-center justify-center">
+    <div class="bg-slate-950/90 border border-sky-400 px-6 py-4 rounded-2xl text-center shadow-2xl">
+      <div class="mono text-xs text-sky-400 tracking-widest uppercase">INTERPLANETARY RELAY ACTIVE</div>
+      <div id="teleportDestLabel" class="text-xl sm:text-2xl font-bold text-white mt-1">TELEPORTING TO MARS...</div>
+    </div>
+  </div>
+
+  <script>
+    /**
+     * ARTEMIS TRAVERSE — Educational & Physically Realistic Lunar Rover Simulation
+     * ----------------------------------------------------------------------------
+     * Physics & Engineering Systems:
+     * 1. Lunar Gravity: 1.62 m/s² (approx. 1/6th of Earth's 9.81 m/s²).
+     * 2. Vacuum Environment: Zero aerodynamic drag; regolith plumes follow pure
+     *    parabolic ballistic trajectories without billowing air turbulence.
+     * 3. Rocker-Bogie Suspension: 3-wheel-pair suspension articulating over
+     *    procedural craters, rilles, and lunar boulders.
+     * 4. Regolith Traction & Slip: Loose lunar dust reduces static friction on steep
+     *    crater walls (>22°), increasing wheel slip percentage and power draw.
+     * 5. Solar & Thermal Shadowing: Low-angle South Pole sunlight charges solar
+     *    arrays based on panel incidence angle; permanently shadowed craters
+     *    drop solar input to 0W, requiring high-beam LED spotlights.
+     */
+
+    // =========================================================================
+    // 1. WEB AUDIO API SYNTHESIZER (Motor hum, wheel crunch, scanner, alerts)
+    // =========================================================================
+    class LunarAudioEngine {
+      constructor() {
+        this.ctx = null;
+        this.enabled = false;
+        this.motorOsc = null;
+        this.motorGain = null;
+        this.noiseNode = null;
+        this.noiseGain = null;
+        this.noiseFilter = null;
+      }
+
+      init() {
+        if (this.ctx) return;
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        this.ctx = new AudioCtx();
+
+        // Subtle Brushless DC Hub Motor Hum
+        this.motorOsc = this.ctx.createOscillator();
+        this.motorOsc.type = 'sawtooth';
+        this.motorOsc.frequency.value = 55;
+
+        const motorFilter = this.ctx.createBiquadFilter();
+        motorFilter.type = 'lowpass';
+        motorFilter.frequency.value = 180;
+
+        this.motorGain = this.ctx.createGain();
+        this.motorGain.gain.value = 0.0;
+
+        this.motorOsc.connect(motorFilter);
+        motorFilter.connect(this.motorGain);
+        this.motorGain.connect(this.ctx.destination);
+        this.motorOsc.start();
+
+        // Regolith Tire Crunch (Filtered Brown/Pink Noise)
+        const bufferSize = this.ctx.sampleRate * 2;
+        const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const output = noiseBuffer.getChannelData(0);
+        let lastOut = 0.0;
+        for (let i = 0; i < bufferSize; i++) {
+          const white = Math.random() * 2 - 1;
+          output[i] = (lastOut + (0.04 * white)) / 1.04;
+          lastOut = output[i];
+          output[i] *= 2.5;
+        }
+
+        this.noiseNode = this.ctx.createBufferSource();
+        this.noiseNode.buffer = noiseBuffer;
+        this.noiseNode.loop = true;
+
+        this.noiseFilter = this.ctx.createBiquadFilter();
+        this.noiseFilter.type = 'bandpass';
+        this.noiseFilter.frequency.value = 420;
+        this.noiseFilter.Q.value = 1.2;
+
+        this.noiseGain = this.ctx.createGain();
+        this.noiseGain.gain.value = 0.0;
+
+        this.noiseNode.connect(this.noiseFilter);
+        this.noiseFilter.connect(this.noiseGain);
+        this.noiseGain.connect(this.ctx.destination);
+        this.noiseNode.start();
+      }
+
+      toggle() {
+        if (!this.ctx) this.init();
+        if (this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+        this.enabled = !this.enabled;
+        if (!this.enabled && this.motorGain && this.noiseGain) {
+          this.motorGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05);
+          this.noiseGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05);
+        }
+        return this.enabled;
+      }
+
+      updateDriveSound(speedAbs, throttleAbs, groundedCount, slipRatio) {
+        if (!this.enabled || !this.ctx) return;
+        const now = this.ctx.currentTime;
+
+        // Motor pitch scales with wheel RPM
+        const targetFreq = 48 + speedAbs * 14 + throttleAbs * 22;
+        const targetMotorGain = Math.min(0.06, (throttleAbs * 0.035 + speedAbs * 0.004));
+        this.motorOsc.frequency.setTargetAtTime(targetFreq, now, 0.08);
+        this.motorGain.gain.setTargetAtTime(targetMotorGain, now, 0.08);
+
+        // Regolith crunch scales when wheels contact surface and move/slip
+        const groundFactor = groundedCount / 3;
+        const crunchIntensity = groundFactor * Math.min(1, (speedAbs * 0.12 + slipRatio * 0.5));
+        this.noiseFilter.frequency.setTargetAtTime(320 + speedAbs * 65, now, 0.08);
+        this.noiseGain.gain.setTargetAtTime(crunchIntensity * 0.07, now, 0.08);
+      }
+
+      playBeep(freq = 880, duration = 0.12, type = 'sine', vol = 0.08) {
+        if (!this.enabled || !this.ctx) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, now);
+        gain.gain.setValueAtTime(vol, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + duration);
+      }
+
+      playScanTick(progress) {
+        this.playBeep(440 + progress * 660, 0.07, 'triangle', 0.05);
+      }
+
+      playSuccess() {
+        this.playBeep(587.33, 0.12, 'sine', 0.09);
+        setTimeout(() => this.playBeep(880, 0.24, 'sine', 0.09), 110);
+      }
+
+      playWarning() {
+        this.playBeep(310, 0.14, 'sawtooth', 0.06);
+      }
+    }
+
+    const audio = new LunarAudioEngine();
+
+    // =========================================================================
+    // 2. GRAND SOLAR SYSTEM PLANETARY CONFIGURATIONS & SCIENCE MISSIONS
+    // =========================================================================
+    const PLANETS = [
+      {
+        id: 'moon',
+        name: "EARTH'S MOON",
+        tag: "WORLD 1/6 // EARTH'S MOON (LUNA)",
+        gravity: 1.62,
+        dragCoeff: 0.0, // Pure vacuum
+        sunAngleDeg: 15.5,
+        solarMaxW: 165,
+        rtgBaselineW: 0, // Pure solar + battery
+        skyTop: '#030408',
+        skyBottom: '#060913',
+        showStars: true,
+        skyBody: 'earth',
+        farMountainColor: '#141820',
+        midMountainColor: '#1e242e',
+        groundTopColor: '#525866',
+        groundMidColor: '#2b303a',
+        groundBotColor: '#0d1017',
+        dustColor: '148, 155, 168',
+        landerLabel: 'ARTEMIS LANDER',
+        terrainScale: 1.0,
+        missions: [
+          {
+            id: 'basalt_outcrop', x: 135, title: '1. Mare Basalt Volcanic Outcrop',
+            shortDesc: 'Drive East to the dark iron-rich basalt boulder field and deploy the Spectrometer.',
+            category: 'LUNAR VOLCANISM & PETROLOGY', apolloRef: 'APOLLO 15 // HADLEY RILLE',
+            minerals: 'Pyroxene, Plagioclase, Ilmenite (FeTiO₃)', age: '3.35 Billion Years', isru: 'Oxygen & Titanium Feedstock',
+            body1: 'The dark plains visible from Earth—known as Lunar Maria ("seas")—are ancient flood basalts formed when massive asteroid impacts fractured the Moon’s crust, allowing iron- and titanium-rich magma to well up and solidify.',
+            physicsNote: 'Because the Moon lacks liquid water and free oxygen, these 3.3-billion-year-old basalt crystals are completely unweathered by rust or erosion.',
+            analyzed: false, type: 'basalt'
+          },
+          {
+            id: 'regolith_ejecta', x: 310, title: '2. Micrometeorite Impact Ejecta Blanket',
+            shortDesc: 'Climb the crater rim ahead to sample glassy agglutinates in the lunar regolith.',
+            category: 'SPACE WEATHERING & REGOLITH', apolloRef: 'APOLLO 11 & 17 // REGOLITH CORE',
+            minerals: 'Nanophase Iron (np-Fe⁰), Impact Glass', age: '4.1 Billion Years (Reworked)', isru: '3D-Printed Radiation Shielding',
+            body1: 'Without an atmosphere to burn up incoming debris, billions of years of micrometeorite impacts have pulverized lunar bedrock into a fine powdery blanket rich in sharp melted glass shards called agglutinates.',
+            physicsNote: 'Lunar dust is razor-sharp and electrostatically charged by solar UV radiation, clinging stubbornly to spacesuits and rover bearings.',
+            analyzed: false, type: 'ejecta'
+          },
+          {
+            id: 'psr_water_ice', x: 505, title: '3. Permanently Shadowed Crater (Water Ice)',
+            shortDesc: 'Descend into the pitch-black crater floor. Turn on Headlights [L] and drill for subsurface ice!',
+            category: 'VOLATILES & CRYOGENIC TRAPS', apolloRef: 'ARTEMIS III // LUNAR SOUTH POLE',
+            minerals: 'Crystalline H₂O Ice, CO₂, Regolith', age: '2.0+ Billion Years Trapped', isru: 'Drinking Water & LOX/LH₂ Rocket Fuel',
+            body1: 'Near the Moon’s poles, the Sun hovers just above the horizon. Deep crater interiors never receive direct sunlight, plunging temperatures below -230°C (40 Kelvin).',
+            physicsNote: 'Inside Permanently Shadowed Regions (PSRs), cometary water molecules freeze solid indefinitely, providing hydrogen and oxygen for lunar bases.',
+            analyzed: false, type: 'ice'
+          },
+          {
+            id: 'anorthosite_highland', x: 710, title: '4. Primordial Highland Anorthosite',
+            shortDesc: 'Ascend the steep highland ridge using 4WD Torque Mode to sample ancient crust.',
+            category: 'MAGMA OCEAN EVOLUTION', apolloRef: 'APOLLO 16 // DESCARTES HIGHLANDS',
+            minerals: 'Calcium-Rich Plagioclase (CaAl₂Si₂O₈)', age: '4.46 Billion Years', isru: 'Aluminum, Silicon & Oxygen',
+            body1: 'Bright lunar highlands are composed of Ferroan Anorthosite—formed when the newborn Moon was covered by a global ocean of molten magma and light plagioclase crystals floated to the top.',
+            physicsNote: 'Under 1.62 m/s² gravity, wheels press into soil with 1/6th Earth weight, making high-torque wire-mesh chevron treads essential on steep slopes.',
+            analyzed: false, type: 'anorthosite'
+          },
+          {
+            id: 'alsep_seismometer', x: 900, title: '5. Lunar Geophysical & Seismic Station',
+            shortDesc: 'Reach the flat plateau at 900m East and deploy the Passive Seismic Experiment.',
+            category: 'INTERIOR GEOPHYSICS & MOONQUAKES', apolloRef: 'APOLLO ALSEP NETWORK',
+            minerals: 'Crust-Mantle Boundary Telemetry', age: 'Active Monitoring Station', isru: 'Habitat Structural Hazard Mapping',
+            body1: 'Apollo seismometers revealed deep moonquakes triggered by Earth’s tidal pull and shallow tectonic fault slips up to magnitude 5.5.',
+            physicsNote: 'Because the Moon’s crust is dry and rigid without water to dampen vibrations, seismic waves scatter for up to an hour—making the Moon ring like a bell.',
+            analyzed: false, type: 'seismometer'
+          },
+          {
+            id: 'lava_tube_skylight', x: 1090, title: '6. Collapsed Lava Tube Skylight',
+            shortDesc: 'Traverse the rille depression at 1090m East to scan an intact subterranean basalt cavern.',
+            category: 'SUBSURFACE HABITAT CAVES', apolloRef: 'LRO / GRAIL // MARIUS HILLS PIT',
+            minerals: 'Vesicular Basalt, Shielded Overhang', age: '3.2 Billion Years', isru: 'Natural Radiation & Micrometeorite Shelter',
+            body1: 'Underground rivers of molten lava drained away billions of years ago, leaving hollow tunnels beneath the surface with stable -20°C temperatures.',
+            physicsNote: 'A 10-meter basalt lava tube roof provides complete natural shielding against cosmic rays and extreme 280°C day-night thermal swings.',
+            analyzed: false, type: 'skylight'
+          },
+          {
+            id: 'helium3_ilmenite', x: 1280, title: '7. Solar-Wind Helium-3 & Ilmenite Basin',
+            shortDesc: 'Cross the titanium-rich mare basin at 1280m East to assay implanted solar-wind volatiles.',
+            category: 'SOLAR WIND & FUSION RESOURCES', apolloRef: 'CHANG’E-5 & APOLLO 17',
+            minerals: 'Ilmenite (FeTiO₃), Helium-3 (³He)', age: '3.4 Billion Years', isru: 'Clean Nuclear Fusion Fuel & Propellant',
+            body1: 'Without a global magnetic field, the solar wind has embedded rare Helium-3 isotopes and hydrogen directly into titanium-bearing ilmenite grains.',
+            physicsNote: 'Heating lunar regolith to 700°C releases trapped Helium-3, hydrogen, and oxygen for future space propulsion.',
+            analyzed: false, type: 'helium3'
+          },
+          {
+            id: 'kreep_terrane', x: 1470, title: '8. Procellarum KREEP Geochemical Anomaly',
+            shortDesc: 'Climb to the elevated massif at 1470m East to sample rare earth elements and thorium.',
+            category: 'PLANETARY DIFFERENTIATION', apolloRef: 'LUNAR PROSPECTOR // KREEP TERRANE',
+            minerals: 'Potassium (K), Rare Earth Elements, Phosphorus', age: '4.35 Billion Years', isru: 'Electronics & Radiogenic Heat Mapping',
+            body1: 'KREEP rocks represent the final dregs of the lunar magma ocean that crystallized last, concentrating incompatible elements like potassium, uranium, and rare earths.',
+            physicsNote: 'Radiogenic heat from thorium and uranium in KREEP terranes kept lunar volcanism active hundreds of millions of years longer than elsewhere.',
+            analyzed: false, type: 'anorthosite'
+          },
+          {
+            id: 'polar_cold_trap', x: 1650, title: '9. Shackleton Rim Neutron Hydrogen Assay',
+            shortDesc: 'Continue East to 1650m to map subsurface hydroxyl and water-frost concentration.',
+            category: 'POLAR VOLATILE STRATIGRAPHY', apolloRef: 'VIPER / LRO NEUTRON SPECTROMETER',
+            minerals: 'Bound Hydroxyl (OH⁻), Micro-Cold-Trap Ice', age: '1.8 Billion Years', isru: 'Cryogenic Propellant Depot Feedstock',
+            body1: 'Even tiny boulder shadows near the lunar poles harbor microscopic cold traps where water frost survives for geological epochs.',
+            physicsNote: 'Neutron spectrometers detect subsurface hydrogen by measuring how fast cosmic-ray neutrons slow down when colliding with hydrogen nuclei.',
+            analyzed: false, type: 'ice'
+          },
+          {
+            id: 'eternal_light_peak', x: 1840, title: '10. Peak of Eternal Light Quantum Relay',
+            shortDesc: 'Reach the summit relay pad at 1840m East to beam your lunar data and teleport to MARS!',
+            category: 'ORBITAL MECHANICS & INTERPLANETARY RELAY', apolloRef: 'ARTEMIS BASE CAMP // SHACKLETON RIM',
+            minerals: 'Elevated Anorthositic Massif', age: '4.4 Billion Years', isru: 'Continuous Solar Power & Teleport Uplink',
+            body1: 'Because the Moon’s axial tilt is only 1.54°, polar mountain peaks rise above surrounding shadows and receive nearly uninterrupted sunlight year-round.',
+            physicsNote: 'Solar power towers on Peaks of Eternal Light can beam continuous energy down to ice-mining rovers working inside dark polar craters.',
+            analyzed: false, type: 'beacon'
+          }
+        ]
+      },
+      {
+        id: 'mars',
+        name: 'MARS (JEZERO & GALE)',
+        tag: 'WORLD 2/6 // MARS (JEZERO CRATER)',
+        gravity: 3.72,
+        dragCoeff: 0.015, // Thin CO2 atmosphere
+        sunAngleDeg: 28,
+        solarMaxW: 115,
+        rtgBaselineW: 75, // Multi-Mission RTG nuclear backup
+        skyTop: '#2b140d',
+        skyBottom: '#b4653e',
+        showStars: false,
+        skyBody: 'phobos',
+        farMountainColor: '#5c2c1d',
+        midMountainColor: '#7a3b26',
+        groundTopColor: '#c2623b',
+        groundMidColor: '#8c3f23',
+        groundBotColor: '#3d190d',
+        dustColor: '205, 110, 72',
+        landerLabel: 'PERSEVERANCE SKYCRANE',
+        terrainScale: 1.15,
+        missions: [
+          {
+            id: 'mars_hematite', x: 160, title: '1. Iron Oxide & Hematite "Blueberry" Concretions',
+            shortDesc: 'Drive East across the rusty Martian regolith to scan spherical hematite concretions.',
+            category: 'AQUEOUS GEOCHEMISTRY', apolloRef: 'OPPORTUNITY // MERIDIANI PLANUM',
+            minerals: 'Crystalline Hematite (Fe₂O₃), Jarosite', age: '3.7 Billion Years', isru: 'Iron Ore & Water History Indicator',
+            body1: 'Mars owes its iconic red color to oxidized iron (rust) dust. Spherical hematite concretions form when mineral-rich groundwater percolates through porous sedimentary rock.',
+            physicsNote: 'Martian gravity (3.72 m/s²) is more than double the Moon’s, giving your rover superior tire traction on slopes while requiring higher motor power.',
+            analyzed: false, type: 'basalt'
+          },
+          {
+            id: 'mars_delta', x: 390, title: '2. Jezero Ancient River Delta Phyllosilicates',
+            shortDesc: 'Climb the layered sedimentary delta fan at 390m East to sample water-altered clay minerals.',
+            category: 'ASTROBIOLOGY & BIOSIGNATURES', apolloRef: 'PERSEVERANCE // JEZERO DELTA',
+            minerals: 'Smectite Clays, Magnesium Carbonates', age: '3.8 Billion Years', isru: 'Hydrated Mineral Water Extraction',
+            body1: 'Billions of years ago, a river flowed into Jezero Crater, forming a fan-shaped delta of mudstones and clays—prime environments for preserving ancient microbial biosignatures.',
+            physicsNote: 'Unlike the airless Moon, Mars has a thin CO₂ atmosphere (1% of Earth’s pressure) that suspends fine reddish dust in the sky, creating butterscotch sunsets.',
+            analyzed: false, type: 'ejecta'
+          },
+          {
+            id: 'mars_brine', x: 640, title: '3. Subsurface Perchlorate & Brine Ice Trench',
+            shortDesc: 'Descend into the shadowed canyon floor at 640m East to drill for buried water ice.',
+            category: 'CRYOSPHERE & IN-SITU RESOURCES', apolloRef: 'PHOENIX LANDER // GREEN VALLEY',
+            minerals: 'Water Ice, Calcium Perchlorate Salts', age: '500 Million Years', isru: 'Sabatier Rocket Fuel (CH₄ + O₂)',
+            body1: 'Vast sheets of water ice lie just centimeters beneath the Martian soil at mid-to-high latitudes, mixed with perchlorate salts that lower the freezing point of water.',
+            physicsNote: 'Using the Sabatier reaction, future Mars missions will combine subsurface H₂O with atmospheric CO₂ to manufacture methane rocket propellant for the trip home.',
+            analyzed: false, type: 'ice'
+          },
+          {
+            id: 'mars_olympus', x: 910, title: '4. Tharsis Shield Volcano Olivine Basalt',
+            shortDesc: 'Ascend the high volcanic ridge at 910m East to inspect unweathered mantle olivine.',
+            category: 'PLANETARY VOLCANISM', apolloRef: 'SPIRIT // GUSEV CRATER',
+            minerals: 'Forsterite Olivine ((Mg,Fe)₂SiO₄), Pyroxene', age: '3.1 Billion Years', isru: 'Carbon Sequestration & Construction',
+            body1: 'Because Mars lacks moving tectonic plates, volcanic hotspots stayed fixed over one spot for hundreds of millions of years—building Olympus Mons, three times taller than Everest.',
+            physicsNote: 'Olivine rapidly breaks down in liquid water; finding intact olivine crystals proves Mars transitioned into a cold, hyper-arid desert billions of years ago.',
+            analyzed: false, type: 'anorthosite'
+          },
+          {
+            id: 'mars_insight', x: 1180, title: '5. Marsquake Seismometer & Atmospheric Station',
+            shortDesc: 'Reach the wind-swept plateau at 1180m East to deploy the Mars Interior Seismic Array.',
+            category: 'MARTIAN CORE & DYNAMO HISTORY', apolloRef: 'INSIGHT LANDER // ELYSIUM PLANITIA',
+            minerals: 'Liquid Iron-Sulfur Core Telemetry', age: 'Active Geophysical Node', isru: 'Dust Devil & Weather Forecasting',
+            body1: 'InSight detected over 1,300 marsquakes, revealing that Mars has a large liquid iron-alloy core enriched in lighter elements like sulfur and oxygen.',
+            physicsNote: 'Mars lost its global magnetic field ~4 billion years ago when core convection slowed, allowing the solar wind to strip away most of its early thick atmosphere.',
+            analyzed: false, type: 'seismometer'
+          },
+          {
+            id: 'mars_relay', x: 1450, title: '6. Areostationary Orbit Laser Uplink Beacon',
+            shortDesc: 'Climb the eastern mesa at 1450m East to transmit Mars data and teleport to JUPITER!',
+            category: 'DEEP SPACE TELECOMMUNICATIONS', apolloRef: 'MARS RECONNAISSANCE ORBITER',
+            minerals: 'Silica-Cemented Sandstone Caprock', age: '3.5 Billion Years', isru: 'Deep-Space Optical Relay',
+            body1: 'Radio signals between Mars and Earth take anywhere from 4 to 24 minutes each way depending on orbital alignment, requiring autonomous rover hazard navigation.',
+            physicsNote: 'Next-generation optical laser relays increase data bandwidth 100x, preparing our expedition for the outer Solar System beyond the Asteroid Belt.',
+            analyzed: false, type: 'beacon'
+          }
+        ]
+      },
+      {
+        id: 'jupiter',
+        name: 'JUPITER (AMALTHEA / CLOUD DECK)',
+        tag: 'WORLD 3/6 // JUPITER INNER SYSTEM (AMALTHEA)',
+        gravity: 2.45, // Low-gravity inner moon / aerostat gravity-stabilized platform
+        dragCoeff: 0.035,
+        sunAngleDeg: 22,
+        solarMaxW: 35, // 5.2 AU from Sun -> only ~3.7% Earth solar flux!
+        rtgBaselineW: 165, // Heavy nuclear RTG power required at 5.2 AU
+        skyTop: '#160d08',
+        skyBottom: '#6b3e26',
+        showStars: true,
+        skyBody: 'jupiter_giant',
+        farMountainColor: '#4a2518',
+        midMountainColor: '#693422',
+        groundTopColor: '#9e472a',
+        groundMidColor: '#6e2c18',
+        groundBotColor: '#290f07',
+        dustColor: '185, 92, 60',
+        landerLabel: 'JUNO-X HEAVY LANDER',
+        terrainScale: 1.25,
+        missions: [
+          {
+            id: 'jup_sulfur', x: 180, title: '1. Io-Ejected Sulfur & Torus Frost Deposit',
+            shortDesc: 'Drive East across the crimson irradiated crust to sample sulfur transported from volcanic Io.',
+            category: 'MAGNETOSPHERIC PLASMA & VOLCANISM', apolloRef: 'GALILEO & JUNO // JOVIAN TORUS',
+            minerals: 'Allotropic Sulfur (S₈), Sulfur Dioxide Frost', age: 'Continuously Replenished', isru: 'Sulfuric Acid & Radiation Shielding',
+            body1: 'Jupiter’s innermost large moon Io is the most volcanically active body in the Solar System, blasting 1 ton of sulfur and oxygen plasma per second into Jupiter’s magnetosphere.',
+            physicsNote: 'At 5.2 AU from the Sun, sunlight is 27 times weaker than at Earth—making Radioisotope Thermoelectric Generators (RTGs) mandatory for outer-planet rovers.',
+            analyzed: false, type: 'helium3'
+          },
+          {
+            id: 'jup_radiation', x: 460, title: '2. Jovian Synchrotron Radiation Belt Dosimeter',
+            shortDesc: 'Traverse the jagged ridge at 460m East to measure relativistic electron flux.',
+            category: 'PLANETARY MAGNETOSPHERES', apolloRef: 'JUNO RADIATION MONITORING',
+            minerals: 'Radiation-Darkened Hydrated Salts', age: 'Active Magnetospheric Trap', isru: 'Superconducting Magnetic Shield Testing',
+            body1: 'Jupiter’s magnetic field is 20,000 times stronger than Earth’s, trapping charged particles in intense radiation belts that generate powerful radio auroras.',
+            physicsNote: 'Your rover’s avionics are housed inside a 1-cm-thick titanium vault (modeled on NASA’s Juno spacecraft) to survive Jupiter’s lethal particle flux.',
+            analyzed: false, type: 'seismometer'
+          },
+          {
+            id: 'jup_water_ice', x: 760, title: '3. Sub-Crustal Europa-Type Oceanic Brine Vent',
+            shortDesc: 'Descend into the fractured icy fissure at 760m East and turn on Headlights [L] to scan ocean salts.',
+            category: 'OCEAN WORLDS & TIDAL HEATING', apolloRef: 'EUROPA CLIPPER // LINEAE FRACTURES',
+            minerals: 'Sodium Chloride (NaCl), Magnesium Sulfate', age: '60 Million Years (Young Crust)', isru: 'Subsurface Ocean Habitability Assay',
+            body1: 'Orbital resonance between Io, Europa, and Ganymede flexes their interiors through tidal friction, maintaining vast liquid water oceans beneath thick icy shells.',
+            physicsNote: 'Europa’s subsurface ocean contains more than twice the liquid water of all Earth’s oceans combined, warmed by hydrothermal vents on its rocky seafloor.',
+            analyzed: false, type: 'ice'
+          },
+          {
+            id: 'jup_metallic_h', x: 1080, title: '4. Deep Jovian Magnetometer & Core Gravity Array',
+            shortDesc: 'Climb the high red massif at 1080m East to map Jupiter’s metallic hydrogen dynamo.',
+            category: 'HIGH-PRESSURE PLANETARY PHYSICS', apolloRef: 'JUNO GRAVITY SCIENCE',
+            minerals: 'Conductive Metallic Hydrogen Telemetry', age: '4.56 Billion Years', isru: 'Extreme-Pressure Physics Calibration',
+            body1: 'Deep inside Jupiter, pressures exceed 2 million Earth atmospheres, squeezing hydrogen gas until its electrons break free and it flows like an electrical liquid metal.',
+            physicsNote: 'Swirling currents in this liquid metallic hydrogen ocean generate the largest magnetic field of any planet in the Solar System.',
+            analyzed: false, type: 'anorthosite'
+          },
+          {
+            id: 'jup_slingshot', x: 1380, title: '5. Jovian Gravity-Assist Quantum Catapult',
+            shortDesc: 'Reach the eastern ridge at 1380m East to execute a gravity-assist teleport to SATURN!',
+            category: 'CELESTIAL MECHANICS', apolloRef: 'VOYAGER & CASSINI GRAVITY ASSIST',
+            minerals: 'Amalthea Silicate-Ice Breccia', age: '4.5 Billion Years', isru: 'Interplanetary Delta-V Slingshot',
+            body1: 'Nearly every spacecraft sent to the outer Solar System—Pioneer, Voyager, Cassini, and New Horizons—used Jupiter’s immense gravity to slingshot toward Saturn and beyond.',
+            physicsNote: 'By passing behind Jupiter in its orbit, a spacecraft steals a tiny fraction of Jupiter’s orbital momentum, gaining massive heliocentric speed without burning fuel.',
+            analyzed: false, type: 'beacon'
+          }
+        ]
+      },
+      {
+        id: 'saturn',
+        name: 'SATURN (TITAN DUNES)',
+        tag: 'WORLD 4/6 // SATURN SYSTEM (TITAN)',
+        gravity: 1.35, // Lower than Earth's Moon!
+        dragCoeff: 0.055, // Thick nitrogen atmosphere (1.45 bar surface pressure!)
+        sunAngleDeg: 18,
+        solarMaxW: 15, // Thick orange haze + 9.5 AU
+        rtgBaselineW: 175,
+        skyTop: '#241808',
+        skyBottom: '#9c6b25',
+        showStars: false,
+        skyBody: 'saturn_rings',
+        farMountainColor: '#4f3514',
+        midMountainColor: '#6e4a1c',
+        groundTopColor: '#b88235',
+        groundMidColor: '#7d541d',
+        groundBotColor: '#2e1d08',
+        dustColor: '214, 158, 76',
+        landerLabel: 'HUYGENS-DRAGONFLY BASE',
+        terrainScale: 0.95,
+        missions: [
+          {
+            id: 'sat_tholins', x: 170, title: '1. Organic Tholin Dunes & Hydrocarbon Sand',
+            shortDesc: 'Drive East across Titan’s golden organic dunes (note the ultra-low 1.35 m/s² gravity!).',
+            category: 'PREBIOTIC ORGANIC CHEMISTRY', apolloRef: 'CASSINI-HUYGENS // SHANGRI-LA DUNES',
+            minerals: 'Complex Organic Tholins, Benzene, Nitriles', age: '100 Million Years', isru: 'Complex Carbon & Nitrogen Feedstock',
+            body1: 'Saturn’s largest moon Titan is wrapped in a dense nitrogen-methane atmosphere. Solar UV light breaks methane apart, raining complex organic molecules ("tholins") onto vast equatorial sand dunes.',
+            physicsNote: 'Titan combines lower gravity than the Moon (1.35 m/s²) with an atmosphere 4 times denser than Earth’s—making it the easiest world in the Solar System for aerial flight!',
+            analyzed: false, type: 'ejecta'
+          },
+          {
+            id: 'sat_methane_lake', x: 470, title: '2. Kraken Mare Liquid Methane Shoreline',
+            shortDesc: 'Descend into the cryogenic basin at 470m East to sample liquid methane and ethane.',
+            category: 'HYDROCARBON HYDROLOGY', apolloRef: 'CASSINI RADAR // KRAKEN MARE',
+            minerals: 'Liquid Methane (CH₄), Ethane (C₂H₆)', age: 'Active Meteorological Cycle', isru: 'Ready-Made Rocket Fuel & Coolant',
+            body1: 'At -179°C (94 Kelvin), water ice is as hard as granite, while methane and ethane exist as liquids—forming clouds, rainstorms, rivers, and seas larger than Earth’s Great Lakes.',
+            physicsNote: 'Titan is the only world besides Earth known to have stable bodies of liquid standing on its surface today.',
+            analyzed: false, type: 'ice'
+          },
+          {
+            id: 'sat_cryovolcano', x: 780, title: '3. Doom Mons Cryovolcanic Water-Ammonia Lava',
+            shortDesc: 'Climb the icy volcanic ridge at 780m East to analyze frozen water-ammonia flows.',
+            category: 'CRYOVOLCANISM', apolloRef: 'CASSINI VIMS // SOTHRA FACULA',
+            minerals: 'Water-Ammonia Ice (H₂O·NH₃), Methane Clathrates', age: '300 Million Years', isru: 'Ammonia Fertilizer & Oxygen',
+            body1: 'Instead of molten silicate rock, volcanoes on icy moons erupt "cryolava"—a slushy mixture of liquid water, ammonia, and methane forced upward from a subsurface ocean.',
+            physicsNote: 'Ammonia acts as a powerful antifreeze, lowering the melting point of water ice by nearly 100°C inside Titan’s crust.',
+            analyzed: false, type: 'anorthosite'
+          },
+          {
+            id: 'sat_enceladus_plume', x: 1090, title: '4. E-Ring Enceladus Geyser Particle Collector',
+            shortDesc: 'Reach the highland ridge at 1090m East to catch fresh ice grains from Enceladus’s geysers.',
+            category: 'OCEAN WORLD PLUME SAMPLING', apolloRef: 'CASSINI COSMIC DUST ANALYZER',
+            minerals: 'H₂O Ice, Molecular Hydrogen (H₂), Silica Nanoparticles', age: 'Freshly Erupted', isru: 'Hydrothermal Vent Biosignature Proof',
+            body1: 'Saturn’s icy moon Enceladus blasts supersonic geysers of water vapor, organic molecules, and molecular hydrogen from warm hydrothermal vents on its ocean floor.',
+            physicsNote: 'These geysers feed Saturn’s tenuous outer E-Ring, allowing spacecraft to sample an alien ocean without even drilling through the ice!',
+            analyzed: false, type: 'seismometer'
+          },
+          {
+            id: 'sat_ring_relay', x: 1380, title: '5. Cassini Division Ring-Plane Quantum Relay',
+            shortDesc: 'Reach the eastern summit at 1380m East to beam Saturn telemetry and teleport to URANUS!',
+            category: 'RING DYNAMICS & GRAVITY RESONANCE', apolloRef: 'CASSINI GRAND FINALE',
+            minerals: '99.9% Pure Crystalline Water Ice', age: '100–400 Million Years', isru: 'Orbital Water Depot',
+            body1: 'Saturn’s majestic rings span 282,000 kilometers across yet average only 10 to 30 meters thick—composed of billions of tumbling water-ice snowballs sculpted by shepherd moons.',
+            physicsNote: 'Orbital resonance with the moon Mimas clears the 4,800-km-wide Cassini Division gap, demonstrating celestial mechanics on a planetary scale.',
+            analyzed: false, type: 'beacon'
+          }
+        ]
+      },
+      {
+        id: 'uranus',
+        name: 'URANUS (MIRANDA CLIFFS)',
+        tag: 'WORLD 5/6 // URANIAN SYSTEM (MIRANDA)',
+        gravity: 0.79, // Ultra-low gravity! Floating leaps!
+        dragCoeff: 0.0, // Airless ice moon
+        sunAngleDeg: 14,
+        solarMaxW: 6, // 19.2 AU from Sun
+        rtgBaselineW: 185,
+        skyTop: '#030812',
+        skyBottom: '#0a1f2e',
+        showStars: true,
+        skyBody: 'uranus_tilted',
+        farMountainColor: '#0e2938',
+        midMountainColor: '#163d52',
+        groundTopColor: '#569bb8',
+        groundMidColor: '#2d5c73',
+        groundBotColor: '#0e222e',
+        dustColor: '145, 210, 235',
+        landerLabel: 'URANUS ORBITER PROBE',
+        terrainScale: 1.45, // Dramatic cliffs & canyons
+        missions: [
+          {
+            id: 'ura_coronae', x: 180, title: '1. Inverness Corona Chevron Ice Ridges',
+            shortDesc: 'Careful in 0.79 m/s² ultra-low gravity! Drive East to scan Miranda’s grooved tectonic bands.',
+            category: 'ICE TECTONICS & DIAPIRISM', apolloRef: 'VOYAGER 2 // MIRANDA FLYBY',
+            minerals: 'Amorphous & Crystalline Water Ice, Silicates', age: '1.0 Billion Years', isru: 'Cryogenic Propellant & Radiation Shield',
+            body1: 'Uranus’s moon Miranda looks like a cosmic jigsaw puzzle, scarred by giant grooved racetrack-like structures called coronae formed when warm buoyant ice rose from its interior.',
+            physicsNote: 'In Miranda’s tiny 0.79 m/s² gravity (less than half the Moon’s!), hitting a bump at high speed launches your rover into a slow-motion ballistic arc—use Gyro Pitch [Q/W]!',
+            analyzed: false, type: 'ice'
+          },
+          {
+            id: 'ura_verona', x: 520, title: '2. Verona Rupes 20-Kilometer Fault Scarp',
+            shortDesc: 'Navigate the massive tectonic cliff basin at 520m East to scan the tallest cliff in the Solar System.',
+            category: 'EXTREME STRUCTURAL GEOLOGY', apolloRef: 'VOYAGER 2 IMAGING TEAM',
+            minerals: 'Fractured Water-Ice Bedrock, Dark Organics', age: '1.5 Billion Years', isru: 'Deep Crustal Stratigraphy Profile',
+            body1: 'Verona Rupes on Miranda is a sheer vertical ice cliff towering 20 kilometers high—ten times deeper than Earth’s Grand Canyon.',
+            physicsNote: 'Because Miranda’s gravity is so weak (0.79 m/s²), a boulder dropped from the top of this 20-km cliff would take 12 full minutes to fall to the bottom!',
+            analyzed: false, type: 'anorthosite'
+          },
+          {
+            id: 'ura_axial_tilt', x: 860, title: '3. Extreme 98° Axial Tilt Magnetospheric Sensor',
+            shortDesc: 'Climb the icy ridge at 860m East to measure Uranus’s corkscrewing magnetic field.',
+            category: 'PLANETARY COLLISIONS & SEASONS', apolloRef: 'VOYAGER 2 MAGNETOMETER',
+            minerals: 'Methane-Ice Frost, Ionized Water Mantle Data', age: '4.5 Billion Years', isru: 'Helium-3 & Deuterium Atmospheric Mining',
+            body1: 'Uranus rotates almost completely on its side at a 97.8° tilt—likely knocked over by an Earth-sized protoplanet collision—giving each pole 42 years of continuous sunlight followed by 42 years of darkness.',
+            physicsNote: 'Uranus’s magnetic field is tilted 59° away from its rotational axis and offset from the planet’s center, tumbling wildly through space every 17 hours.',
+            analyzed: false, type: 'seismometer'
+          },
+          {
+            id: 'ura_diamond_rain', x: 1200, title: '4. Ice Giant Mantle Superionic Ice & Diamond Assay',
+            shortDesc: 'Reach the eastern summit at 1200m East to calibrate deep-interior sensors and teleport to NEPTUNE!',
+            category: 'EXOTIC HIGH-PRESSURE MATTER', apolloRef: 'ICE GIANT INTERIOR LABS',
+            minerals: 'Superionic H₂O Ice, Nanodiamond Mantle Model', age: '4.56 Billion Years', isru: 'Quantum Relay to 30 AU (Neptune)',
+            body1: 'Unlike gas giants Jupiter and Saturn, Uranus and Neptune are "Ice Giants" composed mostly of hot, dense fluid water, ammonia, and methane under millions of atmospheres of pressure.',
+            physicsNote: 'At depths of 8,000 km inside Uranus and Neptune, extreme pressure splits methane molecules into pure carbon that crystallizes into diamond hailstones raining toward the core.',
+            analyzed: false, type: 'beacon'
+          }
+        ]
+      },
+      {
+        id: 'neptune',
+        name: 'NEPTUNE (TRITON GEYSERS)',
+        tag: 'WORLD 6/6 // NEPTUNE SYSTEM (TRITON)',
+        gravity: 0.78, // Triton surface gravity: 0.779 m/s²!
+        dragCoeff: 0.002, // Ultra-tenuous nitrogen atmosphere
+        sunAngleDeg: 12,
+        solarMaxW: 3, // 30.1 AU from Sun -> 900x dimmer than Earth!
+        rtgBaselineW: 195,
+        skyTop: '#02040a',
+        skyBottom: '#091836',
+        showStars: true,
+        skyBody: 'neptune_azure',
+        farMountainColor: '#0f2347',
+        midMountainColor: '#18366b',
+        groundTopColor: '#7aa2d6',
+        groundMidColor: '#3b5d91',
+        groundBotColor: '#111d38',
+        dustColor: '190, 215, 245',
+        landerLabel: 'TRITON HOPPER LANDER',
+        terrainScale: 1.1,
+        missions: [
+          {
+            id: 'nep_cantaloupe', x: 180, title: '1. Triton "Cantaloupe Terrain" Diapir Basin',
+            shortDesc: 'Drive East across Triton’s dimpled nitrogen-ice crust in 0.78 m/s² gravity.',
+            category: 'CRYOGENIC GEOLOGY AT 38 KELVIN', apolloRef: 'VOYAGER 2 // TRITON ENCOUNTER',
+            minerals: 'Frozen Nitrogen (N₂), Dry Ice (CO₂), Water Ice', age: '50 Million Years (Active Surface)', isru: 'Nitrogen Buffer Gas & Rocket Propellant',
+            body1: 'At -235°C (38 Kelvin), Neptune’s largest moon Triton is one of the coldest worlds ever visited—covered in bright frozen nitrogen, carbon monoxide, and methane ice.',
+            physicsNote: 'Triton orbits Neptune backward (retrograde), proving it was originally a Kuiper Belt dwarf planet like Pluto captured by Neptune’s gravity.',
+            analyzed: false, type: 'ejecta'
+          },
+          {
+            id: 'nep_geyser', x: 520, title: '2. Solar-Driven Nitrogen Cryogeyser Plume',
+            shortDesc: 'Descend into the dark-streaked frost basin at 520m East to sample an active nitrogen geyser.',
+            category: 'SOLID-STATE GREENHOUSE CRYOVOLCANISM', apolloRef: 'VOYAGER 2 // HILI & MAHILA PLUMES',
+            minerals: 'Pressurized N₂ Gas, Dark Tholin Soot', age: 'Active Eruption', isru: 'Cold-Gas Thruster Propellant',
+            body1: 'Even 4.5 billion kilometers from the Sun, Triton erupts active geysers that shoot nitrogen gas and dark organic dust 8 kilometers high into its thin sky.',
+            physicsNote: 'Sunlight penetrates Triton’s translucent nitrogen-ice layer and warms darker dust underneath—a "solid-state greenhouse effect" that vaporizes nitrogen until it bursts through the crust!',
+            analyzed: false, type: 'ice'
+          },
+          {
+            id: 'nep_supersonic_winds', x: 860, title: '3. Supersonic Neptunian Atmospheric Profiler',
+            shortDesc: 'Climb the high ridge at 860m East to scan Neptune’s 2,100 km/h methane storms.',
+            category: 'PLANETARY METEOROLOGY', apolloRef: 'VOYAGER 2 & JWST // GREAT DARK SPOT',
+            minerals: 'Stratospheric Methane Haze, Internal Heat Flux', age: '4.56 Billion Years', isru: 'Outer Solar System Weather Baseline',
+            body1: 'Neptune radiates 2.6 times more internal heat than it receives from the distant Sun, driving the fastest winds in the Solar System—exceeding 2,100 km/h (faster than the speed of sound on Earth!).',
+            physicsNote: 'With minimal friction in Neptune’s cold upper atmosphere, storm systems like the Great Dark Spot whip around the planet at supersonic speeds.',
+            analyzed: false, type: 'seismometer'
+          },
+          {
+            id: 'nep_kuiper_gateway', x: 1220, title: '4. Kuiper Belt & Interstellar Deep Space Beacon',
+            shortDesc: 'Reach the final summit at 1220m East to complete the Grand Solar System Traverse!',
+            category: 'HELIOSPHERE & OUTER FRONTIER', apolloRef: 'VOYAGER 2 // 30 AU MILESTONE',
+            minerals: 'Primordial Kuiper Belt Volatile Record', age: '4.56 Billion Years', isru: 'Gateway to Pluto, Eris & Interstellar Space',
+            body1: 'Standing on Triton at 30 Astronomical Units from the Sun, sunlight takes over 4 hours to reach you—yet the Sun’s gravity still commands icy worlds out to the Oort Cloud.',
+            physicsNote: 'Congratulations, Commander! You have mastered planetary gravity from 0.78 m/s² to 3.72 m/s², vacuum vs. atmospheric drag, and RTG/solar power across 6 worlds.',
+            analyzed: false, type: 'beacon'
+          }
+        ]
+      }
+    ];
+
+    let currentPlanetIndex = 0;
+    let SCIENCE_MISSIONS = PLANETS[0].missions;
+
+    // =========================================================================
+    // 3. CANVAS & SIMULATION STATE
+    // =========================================================================
+    const canvas = document.getElementById('simCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Scale: 1 meter in physics world = 26 pixels on screen
+    const PPM = 26;
+    let currentGravity = PLANETS[0].gravity; // Dynamic per planet!
+
+    // Input State
+    const keys = {
+      left: false,
+      right: false,
+      brake: false,
+      gyroLeft: false,
+      gyroRight: false
+    };
+
+    // Rover Physical & Engineering State
+    const rover = {
+      x: 20,              // meters
+      y: 0,               // meters (positive is UP)
+      vx: 0,              // m/s
+      vy: 0,              // m/s
+      angle: 0,           // radians
+      angularVel: 0,      // rad/s
+      mass: 210,          // kg
+      wheelBase: 2.3,     // meters
+      wheelRadius: 0.41,  // meters
+      wheelSpinAngle: 0,  // visual rotation
+      wheelOffsets: [-1.15, 0, 1.15],
+      wheelContacts: [false, false, false],
+      wheelCompressions: [0, 0, 0],
+      
+      // Subsystems
+      lightsOn: false,
+      highTorqueMode: true,
+      batteryWh: 850,
+      maxBatteryWh: 850,
+      solarWatts: 140,
+      drawWatts: 20,
+      sunExposure: 1.0,
+      slipRatio: 0,
+      distanceTraveled: 0,
+      totalExpeditionDist: 0,
+      samplesCollected: 0,
+      
+      // Drilling / Scanning state
+      isScanning: false,
+      scanProgress: 0,
+      activeTarget: null
+    };
+
+    // Particle Systems (Regolith Dust & Spectrometer Laser)
+    let dustParticles = [];
+    let stars = [];
+    let surfaceRocks = [];
+    let landerSite = { x: 12 };
+
+    // Camera State
+    const camera = {
+      x: 20,
+      y: 2,
+      zoom: 1.0
+    };
+
+    let simPaused = false;
+    let missionEnded = false;
+    let lastTimestamp = 0;
+    let tipTimer = 0;
+
+    // =========================================================================
+    // 4. PROCEDURAL PLANETARY TERRAIN & SHADOWING ENGINE
+    // =========================================================================
+    function getTerrainHeight(x) {
+      const planet = PLANETS[currentPlanetIndex];
+      const scale = planet.terrainScale || 1.0;
+
+      // Base rolling elevation modulated by planetary index for unique topography per world
+      const phase = currentPlanetIndex * 1.7;
+      let h = (Math.sin(x * 0.025 + phase) * 1.4 + Math.cos(x * 0.062 - phase) * 0.75) * scale;
+
+      // Landing zone flat apron around x = 12..35
+      const landingBlend = Math.exp(-Math.pow((x - 20) / 18, 2));
+      h = h * (1 - landingBlend) + 0.2 * landingBlend;
+
+      // Crater / Basin 1 near x = 85
+      h += craterProfile(x, 85, 18, 2.1 * scale, 0.5);
+
+      // Crater / Dune Rim 2 near x = 295
+      h += craterProfile(x, 295, 25, 3.6 * scale, 1.05);
+
+      // Deep Shadowed Crater / Canyon / Methane Basin near x = 505
+      h += craterProfile(x, 505, 38, 8.2 * scale, 1.85);
+
+      // Highland Ridge / Escarpment climb between x = 620 and x = 760
+      if (x > 580) {
+        const ridgeProgress = Math.min(1, Math.max(0, (x - 580) / 140));
+        const smoothRidge = ridgeProgress * ridgeProgress * (3 - 2 * ridgeProgress);
+        h += smoothRidge * 11.5 * scale;
+      }
+
+      // Plateau / Ridge around x = 860..920
+      const plateauBlend = Math.exp(-Math.pow((x - 890) / 32, 2));
+      h = h * (1 - plateauBlend) + (11.5 * scale) * plateauBlend;
+
+      // Rille / Fissure Depression around x = 1090
+      h += craterProfile(x, 1090, 26, 4.0 * scale, 0.9);
+
+      // Basin Dip around x = 1240
+      h += craterProfile(x, 1240, 30, 2.4 * scale, 0.6);
+
+      // Final Summit Ascent for outer planets (1200-1470) and Moon (1360-1850)
+      const lastMissionX = SCIENCE_MISSIONS[SCIENCE_MISSIONS.length - 1].x;
+      if (x > lastMissionX - 110) {
+        const peakProgress = Math.min(1, Math.max(0, (x - (lastMissionX - 110)) / 95));
+        const smoothPeak = peakProgress * peakProgress * (3 - 2 * peakProgress);
+        h += smoothPeak * 8.5 * scale;
+      }
+
+      // Flatten final beacon summit pad so rover parks cleanly
+      const summitBlend = Math.exp(-Math.pow((x - lastMissionX) / 22, 2));
+      const summitHeight = (19.5 * scale);
+      h = h * (1 - summitBlend) + summitHeight * summitBlend;
+
+      // Fine micro-undulations (regolith / dune ripples)
+      h += Math.sin(x * 0.45) * 0.07 + Math.cos(x * 1.1) * 0.03;
+
+      return h;
+    }
+
+    // Realistic impact crater cross-section: raised ejecta rim + bowl depression
+    function craterProfile(x, center, radius, depth, rimHeight) {
+      const d = Math.abs(x - center);
+      if (d > radius * 1.65) return 0;
+      const rNorm = d / radius;
+      if (rNorm < 1.0) {
+        // Parabolic bowl
+        const bowl = -depth * (1 - rNorm * rNorm);
+        const rim = rimHeight * Math.pow(rNorm, 3);
+        return bowl + rim;
+      } else {
+        // Exponential decay outer ejecta blanket
+        const outer = rNorm - 1.0;
+        return rimHeight * Math.exp(-outer * 4.2);
+      }
+    }
+
+    // Terrain slope angle in radians (positive = uphill to the right)
+    function getTerrainSlope(x) {
+      const eps = 0.25;
+      const h1 = getTerrainHeight(x - eps);
+      const h2 = getTerrainHeight(x + eps);
+      return Math.atan2(h2 - h1, 2 * eps);
+    }
+
+    // Solar Raycast: Determines if point (x, y) is sunlit or in deep lunar shadow
+    // Sun is positioned at a low South-Polar elevation angle (~16 degrees from West-Southwest)
+    function computeSunExposure(x, y) {
+      const planet = PLANETS[currentPlanetIndex];
+      const sunAngleRad = planet.sunAngleDeg * (Math.PI / 180);
+      const tanSun = Math.tan(sunAngleRad);
+
+      // March rays toward the sun (left/West direction) up to 75 meters
+      let maxOcclusion = 0;
+      for (let dist = 2; dist <= 75; dist += 2.5) {
+        const sampleX = x - dist;
+        const rayY = y + dist * tanSun;
+        const terrainY = getTerrainHeight(sampleX);
+        if (terrainY > rayY) {
+          const depth = terrainY - rayY;
+          maxOcclusion = Math.max(maxOcclusion, Math.min(1, depth / 1.4));
+        }
+      }
+      return Math.max(0, 1 - maxOcclusion);
+    }
+
+    // Populate Starfield & Procedural Surface Rocks
+    function initEnvironment() {
+      stars = [];
+      for (let i = 0; i < 220; i++) {
+        stars.push({
+          rx: Math.random(),
+          ry: Math.random() * 0.72,
+          size: Math.random() < 0.8 ? 1.1 : 1.9,
+          alpha: 0.45 + Math.random() * 0.55
+        });
+      }
+
+      surfaceRocks = [];
+      // Deterministic rock placement across 2000m traverse
+      for (let rx = -15; rx < 2000; rx += 5.5) {
+        const seed = Math.sin(rx * 12.9898 + currentPlanetIndex) * 43758.5453;
+        const frac = seed - Math.floor(seed);
+        if (frac > 0.34) {
+          const rockX = rx + (frac - 0.5) * 3.5;
+          if (Math.abs(rockX - landerSite.x) < 6) continue;
+          surfaceRocks.push({
+            x: rockX,
+            y: getTerrainHeight(rockX),
+            radius: 0.14 + (frac * 0.36),
+            shade: 75 + Math.floor(frac * 45),
+            angle: frac * Math.PI
+          });
+        }
+      }
+    }
+
+    // =========================================================================
+    // 5. PHYSICS & ENGINEERING SIMULATION STEP
+    // =========================================================================
+    function updatePhysics(dt) {
+      if (simPaused || missionEnded) return;
+
+      const planet = PLANETS[currentPlanetIndex];
+      currentGravity = planet.gravity;
+
+      // Clamp dt for stability
+      dt = Math.min(dt, 0.04);
+
+      // Handle Scanning / Drilling state
+      if (rover.isScanning) {
+        rover.vx *= 0.85;
+        rover.scanProgress += dt * 42; // ~2.4 seconds to complete core drill
+        rover.drawWatts = 190;
+        rover.batteryWh = Math.max(0, rover.batteryWh - (rover.drawWatts * dt) / 3600);
+
+        const bar = document.getElementById('scanProgressBar');
+        const pct = document.getElementById('scanPercent');
+        const clampedPct = Math.min(100, Math.floor(rover.scanProgress));
+        if (bar) bar.style.width = `${clampedPct}%`;
+        if (pct) pct.textContent = `${clampedPct}% — SPECTRAL ANALYSIS`;
+
+        if (Math.floor(rover.scanProgress) % 18 === 0) {
+          audio.playScanTick(clampedPct / 100);
+        }
+
+        if (rover.scanProgress >= 100) {
+          completeScienceScan(rover.activeTarget);
+        }
+        return;
+      }
+
+      // 1. Evaluate Rocker-Bogie Wheel Contact with Terrain
+      const cosA = Math.cos(rover.angle);
+      const sinA = Math.sin(rover.angle);
+
+      let groundedWheels = 0;
+      let avgTerrainSlope = 0;
+      let totalNormalForce = 0;
+      let totalPitchTorque = 0;
+
+      // Suspension spring/damper parameters scaled gently for higher gravity worlds like Mars
+      const gravScale = Math.max(1.0, currentGravity / 1.62);
+      const springK = 38.0 * gravScale;
+      const damperC = 7.5 * Math.sqrt(gravScale);
+      const restLegLength = 0.55;
+
+      for (let i = 0; i < 3; i++) {
+        const localX = rover.wheelOffsets[i];
+        const hubX = rover.x + localX * cosA + restLegLength * sinA;
+        const hubY = rover.y + localX * sinA - restLegLength * cosA;
+
+        const groundY = getTerrainHeight(hubX);
+        const penetration = (groundY + rover.wheelRadius) - hubY;
+
+        if (penetration > 0) {
+          groundedWheels++;
+          rover.wheelContacts[i] = true;
+          rover.wheelCompressions[i] = Math.min(0.28, penetration);
+
+          const slope = getTerrainSlope(hubX);
+          avgTerrainSlope += slope;
+
+          const pointVy = rover.vy + rover.angularVel * localX * cosA;
+          const springForce = Math.max(0, penetration * springK - pointVy * damperC);
+
+          totalNormalForce += springForce;
+          totalPitchTorque += localX * springForce;
+
+          if (penetration > 0.34) {
+            rover.y += (penetration - 0.34) * 0.85;
+            if (rover.vy < 0) rover.vy *= 0.25;
+          }
+        } else {
+          rover.wheelContacts[i] = false;
+          rover.wheelCompressions[i] = Math.max(0, rover.wheelCompressions[i] - dt * 2);
+        }
+      }
+
+      if (groundedWheels > 0) {
+        avgTerrainSlope /= groundedWheels;
+      }
+
+      // 2. Planetary Gravity (0.78 to 3.72 m/s²) & Vertical Acceleration
+      const ay = -currentGravity + (totalNormalForce / rover.mass) * Math.cos(rover.angle);
+      rover.vy += ay * dt;
+      rover.y += rover.vy * dt;
+
+      // 3. Drive Throttle, Regolith Traction & Slope Physics
+      let throttle = 0;
+      if (keys.right) throttle += 1;
+      if (keys.left) throttle -= 1;
+
+      if (rover.batteryWh <= 0.1) {
+        throttle = 0;
+      }
+
+      const maxSpeed = rover.highTorqueMode ? 6.6 : 9.8;
+      // Scale motor torque slightly on Mars (3.72 m/s²) so hills climb effortlessly
+      const motorForceMax = (rover.highTorqueMode ? 720 : 440) * Math.max(1.0, currentGravity / 2.2);
+
+      const muRegolith = rover.highTorqueMode ? 0.94 : 0.70;
+      const effectiveNormal = Math.max(rover.mass * currentGravity * 0.9, rover.mass * currentGravity * Math.cos(avgTerrainSlope));
+      const maxTractionForce = effectiveNormal * muRegolith;
+
+      const gravitySlopeForce = -rover.mass * currentGravity * Math.sin(avgTerrainSlope);
+
+      let driveForce = 0;
+      let targetWheelOmega = rover.vx / rover.wheelRadius;
+
+      if (groundedWheels > 0) {
+        const contactRatio = Math.max(0.78, groundedWheels / 3);
+        if (throttle !== 0) {
+          const speedFactor = Math.max(0.28, 1 - Math.abs(rover.vx) / maxSpeed);
+          const requestedForce = throttle * motorForceMax * (0.58 + 0.42 * speedFactor) * contactRatio;
+
+          if (Math.abs(requestedForce) > maxTractionForce * contactRatio) {
+            driveForce = Math.sign(requestedForce) * maxTractionForce * contactRatio;
+            const excessRatio = (Math.abs(requestedForce) - Math.abs(driveForce)) / motorForceMax;
+            rover.slipRatio = Math.min(65, Math.round(14 + excessRatio * 90));
+            targetWheelOmega = (rover.vx / rover.wheelRadius) + throttle * 6.5;
+          } else {
+            driveForce = requestedForce;
+            rover.slipRatio = Math.min(22, Math.round((Math.abs(requestedForce) / (maxTractionForce + 1)) * 14));
+            targetWheelOmega = (rover.vx / rover.wheelRadius) + throttle * 2.0;
+          }
+        } else {
+          rover.slipRatio = Math.max(0, rover.slipRatio - 5);
+        }
+
+        const rollingResistance = -rover.vx * (keys.brake ? 200 : 10) * contactRatio;
+        const aeroDrag = -rover.vx * Math.abs(rover.vx) * planet.dragCoeff * 12;
+
+        const netAx = (driveForce + gravitySlopeForce + rollingResistance + aeroDrag) / rover.mass;
+        rover.vx += netAx * dt;
+
+        if (throttle === 0 && Math.abs(rover.vx) < 0.08 && Math.abs(avgTerrainSlope) < 0.35) {
+          rover.vx = 0;
+        }
+      } else {
+        rover.slipRatio = throttle !== 0 ? 100 : 0;
+        if (throttle !== 0) {
+          targetWheelOmega += throttle * 12 * dt;
+        }
+      }
+
+      // Integrate Horizontal Position & Track Distance
+      const dx = rover.vx * dt;
+      rover.x += dx;
+      rover.distanceTraveled += Math.abs(dx);
+      rover.totalExpeditionDist += Math.abs(dx);
+
+      const maxWorldX = SCIENCE_MISSIONS[SCIENCE_MISSIONS.length - 1].x + 60;
+      if (rover.x < -8) {
+        rover.x = -8;
+        rover.vx = Math.max(0, rover.vx);
+      } else if (rover.x > maxWorldX) {
+        rover.x = maxWorldX;
+        rover.vx = Math.min(0, rover.vx);
+      }
+
+      // 4. Pitch Dynamics & Reaction Wheel Attitude Control
+      let gyroTorque = 0;
+      if (keys.gyroLeft) gyroTorque += 3.3;
+      if (keys.gyroRight) gyroTorque -= 3.3;
+
+      const momentOfInertia = 165;
+      const angularAcc = (totalPitchTorque * 1.45) / momentOfInertia + gyroTorque - rover.angularVel * 2.8;
+      rover.angularVel += angularAcc * dt;
+      rover.angle += rover.angularVel * dt;
+
+      rover.wheelSpinAngle += targetWheelOmega * dt;
+
+      // 5. Kick Up Ballistic Regolith / Dust Particles
+      if (groundedWheels > 0 && (Math.abs(rover.vx) > 0.6 || rover.slipRatio > 22)) {
+        const emitChance = Math.min(0.85, (Math.abs(rover.vx) * 0.14) + (rover.slipRatio * 0.01));
+        if (Math.random() < emitChance) {
+          const wheelIdx = Math.floor(Math.random() * 3);
+          if (rover.wheelContacts[wheelIdx]) {
+            const wx = rover.x + rover.wheelOffsets[wheelIdx] * cosA;
+            const wy = getTerrainHeight(wx) + 0.08;
+            const kickDir = throttle !== 0 ? -Math.sign(throttle) : -Math.sign(rover.vx || 1);
+            const kickSpeed = (1.2 + Math.random() * 2.4) * (1 + rover.slipRatio * 0.015);
+            dustParticles.push({
+              x: wx,
+              y: wy,
+              vx: rover.vx * 0.3 + kickDir * kickSpeed,
+              vy: 0.8 + Math.random() * 1.9,
+              size: 1.8 + Math.random() * 2.6,
+              alpha: 0.75,
+              life: 1.0 + Math.random() * 0.7
+            });
+          }
+        }
+      }
+
+      // 6. Solar Power + Nuclear RTG Baseline & Battery Management
+      rover.sunExposure = computeSunExposure(rover.x, rover.y + 0.8);
+      const panelAngleFactor = Math.max(0.2, Math.cos(rover.angle - 0.25));
+      const solarGen = Math.round(planet.solarMaxW * rover.sunExposure * panelAngleFactor);
+      rover.solarWatts = solarGen + (planet.rtgBaselineW || 0);
+
+      const baseAvionicsW = 18;
+      const motorW = Math.abs(throttle) * (rover.highTorqueMode ? 110 : 62) * (1 + rover.slipRatio * 0.008);
+      const lightsW = rover.lightsOn ? 42 : 0;
+      const gyroW = (keys.gyroLeft || keys.gyroRight) ? 24 : 0;
+      rover.drawWatts = Math.round(baseAvionicsW + motorW + lightsW + gyroW);
+
+      const netWatts = rover.solarWatts - rover.drawWatts;
+      const timeScaleFactor = 18;
+      rover.batteryWh = Math.max(0, Math.min(rover.maxBatteryWh, rover.batteryWh + (netWatts * dt * timeScaleFactor) / 3600));
+
+      // 7. Check Pitch / Rollover Safety & Battery Depletion
+      const pitchDeg = Math.abs(rover.angle * (180 / Math.PI));
+      if (pitchDeg > 68 && Math.abs(rover.vx) < 0.25 && groundedWheels > 0) {
+        tipTimer += dt;
+        if (tipTimer > 2.2) {
+          triggerMissionFailure(
+            'ROVER ROLLOVER EXCEEDED SAFE TILT',
+            'Excessive pitch angle on steep terrain caused a loss of stability. Use Gyro Pitch Trim [Q/W] and moderate speed over sharp crests.'
+          );
+        }
+      } else {
+        tipTimer = Math.max(0, tipTimer - dt);
+      }
+
+      if (rover.batteryWh <= 0 && rover.solarWatts < 20 && Math.abs(rover.vx) < 0.05) {
+        triggerMissionFailure(
+          'BATTERY DEPLETED IN SHADOWED BASIN',
+          'Operating high-torque motors and spotlights in deep shadow without sufficient solar/RTG recharge drained the main battery bus.'
+        );
+      }
+
+      // 8. Audio & Camera Smooth Follow
+      audio.updateDriveSound(Math.abs(rover.vx), Math.abs(throttle), groundedWheels, rover.slipRatio / 100);
+
+      const lookAhead = rover.vx * 1.15;
+      camera.x += (rover.x + lookAhead - camera.x) * Math.min(1, dt * 4.5);
+      camera.y += (rover.y + 1.8 - camera.y) * Math.min(1, dt * 3.5);
+    }
+
+    function updateParticles(dt) {
+      const planet = PLANETS[currentPlanetIndex];
+      for (let i = dustParticles.length - 1; i >= 0; i--) {
+        const p = dustParticles[i];
+        p.vy -= currentGravity * dt;
+        // Atmospheric drag suspends dust slightly on Mars & Titan!
+        if (planet.dragCoeff > 0) {
+          p.vx *= (1 - planet.dragCoeff * 2.5 * dt);
+          p.vy *= (1 - planet.dragCoeff * 1.5 * dt);
+        }
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.life -= dt * 0.72;
+
+        const groundY = getTerrainHeight(p.x);
+        if (p.y <= groundY || p.life <= 0) {
+          dustParticles.splice(i, 1);
+        }
+      }
+    }
+
+    // =========================================================================
+    // 6. SCIENCE TARGET DETECTION & EDUCATIONAL LOGS
+    // =========================================================================
+    function getNextActiveMission() {
+      return SCIENCE_MISSIONS.find(m => !m.analyzed) || null;
+    }
+
+    function checkScienceProximity() {
+      const nextMission = getNextActiveMission();
+      const banner = document.getElementById('contextBanner');
+      const bannerText = document.getElementById('contextBannerText');
+      const bannerInner = document.getElementById('contextBannerInner');
+
+      // Check proximity to ANY unanalyzed mission
+      let nearby = null;
+      for (const m of SCIENCE_MISSIONS) {
+        if (!m.analyzed && Math.abs(rover.x - m.x) <= 6.5) {
+          nearby = m;
+          break;
+        }
+      }
+
+      rover.activeTarget = nearby;
+
+      if (nearby && !rover.isScanning) {
+        banner.classList.remove('opacity-0', 'scale-95');
+        banner.classList.add('opacity-100', 'scale-100');
+        bannerInner.className = 'hud-panel px-4 py-2 rounded-full border-emerald-400/80 flex items-center gap-2 shadow-lg';
+        bannerText.className = 'mono text-xs sm:text-sm font-bold text-emerald-300';
+        if (Math.abs(rover.vx) > 0.6) {
+          bannerText.textContent = `IN RANGE: ${nearby.title.toUpperCase()} — SLOW DOWN TO DRILL`;
+        } else {
+          bannerText.textContent = `TARGET LOCKED — PRESS [SPACE] OR "DRILL / SCAN" TO ANALYZE`;
+        }
+      } else if (rover.sunExposure < 0.2 && !rover.lightsOn) {
+        banner.classList.remove('opacity-0', 'scale-95');
+        banner.classList.add('opacity-100', 'scale-100');
+        bannerInner.className = 'hud-panel px-4 py-2 rounded-full border-amber-400/80 flex items-center gap-2 shadow-lg';
+        bannerText.className = 'mono text-xs sm:text-sm font-bold text-amber-300';
+        bannerText.textContent = 'ENTERING CRATER SHADOW (0W SOLAR) — PRESS [L] FOR HEADLIGHTS';
+      } else {
+        banner.classList.add('opacity-0', 'scale-95');
+        banner.classList.remove('opacity-100', 'scale-100');
+      }
+
+      // Update Top Mission Header
+      const planet = PLANETS[currentPlanetIndex];
+      document.getElementById('planetHeaderTag').textContent = planet.tag;
+      if (nextMission) {
+        const completedCount = SCIENCE_MISSIONS.filter(m => m.analyzed).length;
+        document.getElementById('missionCounter').textContent = `OBJ ${completedCount + 1}/${SCIENCE_MISSIONS.length}`;
+        document.getElementById('missionTitle').textContent = nextMission.title;
+        document.getElementById('missionDesc').textContent = nextMission.shortDesc;
+
+        const deltaX = nextMission.x - rover.x;
+        const absDist = Math.abs(Math.round(deltaX));
+        document.getElementById('targetDistVal').textContent = `${absDist} m`;
+        document.getElementById('targetDirVal').innerHTML = deltaX > 2 ? 'EAST &rarr;' : (deltaX < -2 ? '&larr; WEST' : 'ON SITE');
+      }
+    }
+
+    function initiateScienceScan() {
+      if (simPaused || missionEnded || rover.isScanning) return;
+
+      if (!rover.activeTarget) {
+        audio.playWarning();
+        showTemporaryBanner('NO GEOLOGICAL TARGET IN RANGE — DRIVE TO NEXT WAYPOINT');
+        return;
+      }
+
+      if (Math.abs(rover.vx) > 0.75) {
+        audio.playWarning();
+        showTemporaryBanner('BRING ROVER TO A STOP (< 0.7 m/s) BEFORE DEPLOYING DRILL');
+        return;
+      }
+
+      rover.isScanning = true;
+      rover.scanProgress = 0;
+      document.getElementById('scanTargetName').textContent = rover.activeTarget.title;
+      document.getElementById('scanOverlay').classList.remove('hidden');
+      audio.playBeep(660, 0.15, 'triangle', 0.08);
+    }
+
+    function showTemporaryBanner(msg) {
+      const banner = document.getElementById('contextBanner');
+      const bannerText = document.getElementById('contextBannerText');
+      bannerText.textContent = msg;
+      banner.classList.remove('opacity-0', 'scale-95');
+      banner.classList.add('opacity-100', 'scale-100');
+    }
+
+    function completeScienceScan(mission) {
+      rover.isScanning = false;
+      document.getElementById('scanOverlay').classList.add('hidden');
+      if (!mission) return;
+
+      mission.analyzed = true;
+      rover.samplesCollected++;
+      // Reward battery calibration boost so player isn't soft-locked after deep crater exploration
+      rover.batteryWh = Math.min(rover.maxBatteryWh, rover.batteryWh + 150);
+
+      audio.playSuccess();
+      simPaused = true;
+
+      // Populate Educational Science Log Modal
+      document.getElementById('modalCategory').textContent = mission.category;
+      document.getElementById('modalApolloRef').textContent = mission.apolloRef;
+      document.getElementById('modalTitle').textContent = mission.title;
+      document.getElementById('modalMinerals').textContent = mission.minerals;
+      document.getElementById('modalAge').textContent = mission.age;
+      document.getElementById('modalIsru').textContent = mission.isru;
+      document.getElementById('modalBody1').textContent = mission.body1;
+      document.getElementById('modalPhysicsNote').textContent = mission.physicsNote;
+
+      document.getElementById('scienceModal').classList.remove('hidden');
+    }
+
+    function triggerMissionFailure(title, reason) {
+      missionEnded = true;
+      audio.playWarning();
+      const planet = PLANETS[currentPlanetIndex];
+      document.getElementById('endBadge').textContent = `TELEMETRY ALERT // ${planet.name}`;
+      document.getElementById('endBadge').className = 'inline-block px-3 py-1 rounded-full mono text-xs font-bold bg-rose-500/20 text-rose-300 border border-rose-400/50';
+      document.getElementById('endTitle').textContent = title;
+      document.getElementById('endDesc').textContent = reason;
+      document.getElementById('statSamples').textContent = `${rover.samplesCollected} / ${SCIENCE_MISSIONS.length}`;
+      document.getElementById('statDist').textContent = `${Math.round(rover.distanceTraveled)} m`;
+      document.getElementById('statBatt').textContent = `${Math.round((rover.batteryWh / rover.maxBatteryWh) * 100)}%`;
+      document.getElementById('restartBtn').textContent = `RETRY ${planet.name} TRAVERSE`;
+      document.getElementById('restartBtn').dataset.action = 'retry';
+      document.getElementById('endModal').classList.remove('hidden');
+    }
+
+    function triggerMissionSuccess() {
+      missionEnded = true;
+      audio.playSuccess();
+      const planet = PLANETS[currentPlanetIndex];
+      const hasNextPlanet = currentPlanetIndex < PLANETS.length - 1;
+      const nextPlanet = hasNextPlanet ? PLANETS[currentPlanetIndex + 1] : null;
+
+      if (hasNextPlanet) {
+        document.getElementById('endBadge').textContent = `WORLD ${currentPlanetIndex + 1}/6 COMPLETE // TELEPORT READY`;
+        document.getElementById('endBadge').className = 'inline-block px-3 py-1 rounded-full mono text-xs font-bold bg-sky-500/20 text-sky-300 border border-sky-400/50';
+        document.getElementById('endTitle').textContent = `${planet.name} Survey Complete!`;
+        document.getElementById('endDesc').textContent = `All ${SCIENCE_MISSIONS.length} geological samples on ${planet.name} have been transmitted. Quantum-Relay Teleportation is locked onto ${nextPlanet.name} (Gravity: ${nextPlanet.gravity} m/s²).`;
+        document.getElementById('statSamples').textContent = `${SCIENCE_MISSIONS.length} / ${SCIENCE_MISSIONS.length}`;
+        document.getElementById('statDist').textContent = `${Math.round(rover.totalExpeditionDist)} m`;
+        document.getElementById('statBatt').textContent = `${nextPlanet.gravity} m/s²`;
+        document.getElementById('restartBtn').textContent = `INITIATE TELEPORT TO ${nextPlanet.name} \u2192`;
+        document.getElementById('restartBtn').dataset.action = 'teleport';
+      } else {
+        document.getElementById('endBadge').textContent = 'GRAND SOLAR SYSTEM EXPEDITION COMPLETE';
+        document.getElementById('endBadge').className = 'inline-block px-3 py-1 rounded-full mono text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/50';
+        document.getElementById('endTitle').textContent = 'Moon to Neptune Conquered!';
+        document.getElementById('endDesc').textContent = `Extraordinary work, Commander! You traversed the Moon, Mars, Jupiter, Saturn, Uranus, and Neptune—analyzing 34 planetary science sites across the entire Solar System.`;
+        document.getElementById('statSamples').textContent = '34 / 34 TOTAL';
+        document.getElementById('statDist').textContent = `${Math.round(rover.totalExpeditionDist)} m`;
+        document.getElementById('statBatt').textContent = '100% COMPLETE';
+        document.getElementById('restartBtn').textContent = 'NEW EXPEDITION (START AT MOON)';
+        document.getElementById('restartBtn').dataset.action = 'restart_all';
+      }
+      document.getElementById('endModal').classList.remove('hidden');
+    }
+
+    function teleportToPlanet(planetIdx) {
+      const targetPlanet = PLANETS[planetIdx];
+      const flash = document.getElementById('teleportFlash');
+      const label = document.getElementById('teleportDestLabel');
+      label.textContent = `TELEPORTING TO ${targetPlanet.name}...`;
+
+      document.getElementById('endModal').classList.add('hidden');
+      flash.classList.remove('opacity-0');
+      flash.classList.add('opacity-100');
+
+      // Synthesize sci-fi harmonic teleport sweep
+      audio.playBeep(330, 0.25, 'sine', 0.08);
+      setTimeout(() => audio.playBeep(554.37, 0.25, 'sine', 0.08), 120);
+      setTimeout(() => audio.playBeep(880, 0.4, 'triangle', 0.09), 240);
+
+      setTimeout(() => {
+        currentPlanetIndex = planetIdx;
+        SCIENCE_MISSIONS = PLANETS[currentPlanetIndex].missions;
+        initEnvironment();
+        resetSimulation(false);
+
+        setTimeout(() => {
+          flash.classList.remove('opacity-100');
+          flash.classList.add('opacity-0');
+        }, 350);
+      }, 480);
+    }
+
+    // =========================================================================
+    // 7. REALISTIC 2.5D RENDERING ENGINE (Moon, Mars, Jupiter, Saturn, Uranus, Neptune)
+    // =========================================================================
+    // 7. REALISTIC 2.5D RENDERING ENGINE (Earth, Sun, Shadows, Rover, Terrain)
+    // =========================================================================
+    function resizeCanvas() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = window.innerWidth * dpr;
+      canvas.height = window.innerHeight * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function worldToScreen(wx, wy) {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      const sx = w * 0.42 + (wx - camera.x) * PPM;
+      const sy = h * 0.64 - (wy - camera.y) * PPM;
+      return { x: sx, y: sy };
+    }
+
+    function render() {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      const planet = PLANETS[currentPlanetIndex];
+
+      // 1. Planetary Sky Dome (Vacuum black on Moon/Uranus vs dusty CO2/N2 scattering on Mars/Titan)
+      const skyGrad = ctx.createLinearGradient(0, 0, 0, h * 0.72);
+      skyGrad.addColorStop(0, planet.skyTop);
+      skyGrad.addColorStop(1, planet.skyBottom);
+      ctx.fillStyle = skyGrad;
+      ctx.fillRect(0, 0, w, h);
+
+      // Crisp Stars (Visible in airless or tenuous upper atmospheres)
+      if (planet.showStars) {
+        for (const s of stars) {
+          ctx.fillStyle = `rgba(241, 245, 249, ${s.alpha})`;
+          ctx.fillRect(s.rx * w, s.ry * h, s.size, s.size);
+        }
+      }
+
+      // 2. Distant Sun & Corona (Dims appropriately as we travel from 1 AU to 30 AU!)
+      const sunScale = Math.max(0.28, 1 - currentPlanetIndex * 0.14);
+      const sunScreenX = w * 0.14;
+      const sunScreenY = h * 0.22;
+      const coronaR = 95 * sunScale;
+      const sunGrad = ctx.createRadialGradient(sunScreenX, sunScreenY, 3 * sunScale, sunScreenX, sunScreenY, coronaR);
+      sunGrad.addColorStop(0, 'rgba(255, 253, 240, 1)');
+      sunGrad.addColorStop(0.2, 'rgba(255, 245, 200, 0.5)');
+      sunGrad.addColorStop(1, 'rgba(255, 220, 150, 0)');
+      ctx.fillStyle = sunGrad;
+      ctx.beginPath();
+      ctx.arc(sunScreenX, sunScreenY, coronaR, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 3. Signature Celestial Body in the Sky (Earth, Phobos, Jupiter, Saturn w/ Rings, Uranus, Neptune)
+      const bodyX = w * 0.78 - camera.x * 0.03;
+      const bodyY = h * 0.21;
+      const baseR = Math.max(24, Math.min(w, h) * 0.048);
+      drawPlanetarySkyBody(planet.skyBody, bodyX, bodyY, baseR);
+
+      // 4. Distant Planetary Mountain Massifs (2.5D Parallax Horizon)
+      drawDistantMountains(w, h);
+
+      // 5. Foreground Terrain & Cast Shadows
+      drawLunarTerrain(w, h);
+
+      // 6. Planetary Lander at Base Camp (x = 12m)
+      drawLunarLander(landerSite.x, getTerrainHeight(landerSite.x));
+
+      // 7. Geological Science Targets & Waypoint Beacons
+      drawScienceTargets();
+
+      // 8. Rover Headlight Cone
+      if (rover.lightsOn) {
+        drawHeadlightBeam();
+      }
+
+      // 9. Articulated Rocker-Bogie Rover
+      drawRover();
+
+      // 10. Ballistic / Atmospheric Regolith Dust Plumes
+      drawDustParticles();
+    }
+
+    function drawPlanetarySkyBody(type, ex, ey, r) {
+      if (type === 'earth') {
+        drawEarth(ex, ey, r);
+      } else if (type === 'phobos') {
+        // Potato-shaped Martian moon Phobos
+        ctx.save();
+        ctx.translate(ex, ey);
+        ctx.rotate(-0.35);
+        ctx.fillStyle = '#8c7a70';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, r * 0.55, r * 0.36, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(0,0,0,0.45)';
+        ctx.beginPath();
+        ctx.arc(-r * 0.18, -r * 0.05, r * 0.14, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      } else if (type === 'jupiter_giant') {
+        // Towering banded gas giant Jupiter with Great Red Spot!
+        const jr = r * 2.1;
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(ex, ey + 15, jr, 0, Math.PI * 2);
+        ctx.clip();
+
+        const jGrad = ctx.createLinearGradient(ex, ey + 15 - jr, ex, ey + 15 + jr);
+        jGrad.addColorStop(0, '#a88367');
+        jGrad.addColorStop(0.25, '#e6d5c1');
+        jGrad.addColorStop(0.45, '#b8653b');
+        jGrad.addColorStop(0.65, '#eddcc7');
+        jGrad.addColorStop(0.85, '#9c5a3c');
+        jGrad.addColorStop(1, '#6e4532');
+        ctx.fillStyle = jGrad;
+        ctx.fillRect(ex - jr, ey + 15 - jr, jr * 2, jr * 2);
+
+        // Great Red Spot
+        ctx.fillStyle = '#c2412d';
+        ctx.beginPath();
+        ctx.ellipse(ex - jr * 0.25, ey + 15 + jr * 0.28, jr * 0.24, jr * 0.13, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Terminator shadow
+        const sGrad = ctx.createLinearGradient(ex - jr * 0.2, ey, ex + jr, ey);
+        sGrad.addColorStop(0, 'rgba(0,0,0,0)');
+        sGrad.addColorStop(0.75, 'rgba(0,0,0,0.85)');
+        ctx.fillStyle = sGrad;
+        ctx.fillRect(ex - jr, ey + 15 - jr, jr * 2, jr * 2);
+        ctx.restore();
+      } else if (type === 'saturn_rings') {
+        // Golden Saturn + Magnificent Ring System
+        const sr = r * 1.35;
+        ctx.save();
+        ctx.translate(ex, ey + 8);
+        ctx.rotate(-0.32);
+
+        // Back half of rings
+        ctx.strokeStyle = 'rgba(226, 198, 145, 0.55)';
+        ctx.lineWidth = 8;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, sr * 2.35, sr * 0.55, 0, Math.PI, Math.PI * 2);
+        ctx.stroke();
+
+        // Saturn Globe
+        const satGrad = ctx.createRadialGradient(-sr * 0.3, -sr * 0.3, sr * 0.1, 0, 0, sr);
+        satGrad.addColorStop(0, '#fde68a');
+        satGrad.addColorStop(0.6, '#d9a05b');
+        satGrad.addColorStop(1, '#785027');
+        ctx.fillStyle = satGrad;
+        ctx.beginPath();
+        ctx.arc(0, 0, sr, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Front half of rings
+        ctx.strokeStyle = 'rgba(245, 222, 179, 0.82)';
+        ctx.lineWidth = 8;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, sr * 2.35, sr * 0.55, 0, 0, Math.PI);
+        ctx.stroke();
+
+        ctx.restore();
+      } else if (type === 'uranus_tilted') {
+        // Pale Cyan Ice Giant Uranus with Vertical 98° Ring!
+        const ur = r * 1.3;
+        ctx.save();
+        ctx.translate(ex, ey + 8);
+        ctx.rotate(1.42); // Nearly vertical ring!
+
+        ctx.strokeStyle = 'rgba(165, 243, 252, 0.42)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, ur * 1.95, ur * 0.42, 0, 0, Math.PI * 2);
+        ctx.stroke();
+
+        const uGrad = ctx.createRadialGradient(-ur * 0.3, -ur * 0.2, ur * 0.1, 0, 0, ur);
+        uGrad.addColorStop(0, '#a5f3fc');
+        uGrad.addColorStop(0.65, '#22d3ee');
+        uGrad.addColorStop(1, '#0e7490');
+        ctx.fillStyle = uGrad;
+        ctx.beginPath();
+        ctx.arc(0, 0, ur, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+      } else if (type === 'neptune_azure') {
+        // Deep Cobalt-Azure Neptune with White Methane Cirrus Streaks
+        const nr = r * 1.5;
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(ex, ey + 10, nr, 0, Math.PI * 2);
+        ctx.clip();
+
+        const nGrad = ctx.createRadialGradient(ex - nr * 0.3, ey + 10 - nr * 0.3, nr * 0.1, ex, ey + 10, nr);
+        nGrad.addColorStop(0, '#60a5fa');
+        nGrad.addColorStop(0.55, '#2563eb');
+        nGrad.addColorStop(1, '#1e1b4b');
+        ctx.fillStyle = nGrad;
+        ctx.fillRect(ex - nr, ey + 10 - nr, nr * 2, nr * 2);
+
+        // Supersonic methane cloud streaks
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.fillRect(ex - nr * 0.5, ey + 4, nr * 0.85, 3);
+        ctx.fillRect(ex - nr * 0.3, ey + 18, nr * 0.65, 2.5);
+
+        ctx.restore();
+      }
+    }
+
+    function drawEarth(ex, ey, r) {
+      ctx.save();
+      const atmoGrad = ctx.createRadialGradient(ex, ey, r * 0.85, ex, ey, r * 1.35);
+      atmoGrad.addColorStop(0, 'rgba(56, 189, 248, 0.35)');
+      atmoGrad.addColorStop(1, 'rgba(56, 189, 248, 0)');
+      ctx.fillStyle = atmoGrad;
+      ctx.beginPath();
+      ctx.arc(ex, ey, r * 1.35, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(ex, ey, r, 0, Math.PI * 2);
+      ctx.clip();
+
+      ctx.fillStyle = '#0284c7';
+      ctx.fillRect(ex - r, ey - r, r * 2, r * 2);
+
+      ctx.fillStyle = '#15803d';
+      ctx.beginPath();
+      ctx.ellipse(ex - r * 0.25, ey - r * 0.15, r * 0.42, r * 0.28, 0.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(ex + r * 0.2, ey + r * 0.25, r * 0.3, r * 0.35, -0.3, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+      ctx.beginPath();
+      ctx.ellipse(ex - r * 0.1, ey - r * 0.35, r * 0.65, r * 0.12, 0.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(ex + r * 0.15, ey + r * 0.1, r * 0.55, r * 0.1, -0.15, 0, Math.PI * 2);
+      ctx.fill();
+
+      const shadowGrad = ctx.createLinearGradient(ex - r * 0.4, ey - r * 0.4, ex + r * 0.9, ey + r * 0.9);
+      shadowGrad.addColorStop(0, 'rgba(0,0,0,0)');
+      shadowGrad.addColorStop(0.55, 'rgba(0,0,0,0.2)');
+      shadowGrad.addColorStop(0.85, 'rgba(2,4,10,0.92)');
+      ctx.fillStyle = shadowGrad;
+      ctx.fillRect(ex - r, ey - r, r * 2, r * 2);
+      ctx.restore();
+    }
+
+    function drawDistantMountains(w, h) {
+      const planet = PLANETS[currentPlanetIndex];
+      // Far ridge
+      ctx.fillStyle = planet.farMountainColor;
+      ctx.beginPath();
+      ctx.moveTo(0, h);
+      for (let sx = 0; sx <= w + 20; sx += 20) {
+        const wx = sx + camera.x * 3.5;
+        const mh = Math.sin(wx * 0.004) * 55 + Math.cos(wx * 0.011) * 32 + Math.sin(wx * 0.025) * 12;
+        ctx.lineTo(sx, h * 0.58 - mh);
+      }
+      ctx.lineTo(w, h);
+      ctx.closePath();
+      ctx.fill();
+
+      // Mid ridge with sunlit western slopes
+      ctx.fillStyle = planet.midMountainColor;
+      ctx.beginPath();
+      ctx.moveTo(0, h);
+      for (let sx = 0; sx <= w + 16; sx += 16) {
+        const wx = sx + camera.x * 7.5;
+        const mh = Math.sin(wx * 0.007 + 1.2) * 42 + Math.cos(wx * 0.019) * 20;
+        ctx.lineTo(sx, h * 0.63 - mh);
+      }
+      ctx.lineTo(w, h);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    function drawLunarTerrain(w, h) {
+      const planet = PLANETS[currentPlanetIndex];
+      const leftWorldX = camera.x - (w * 0.45) / PPM - 2;
+      const rightWorldX = camera.x + (w * 0.65) / PPM + 2;
+      const step = 0.35;
+
+      // Subsurface planetary crust cross-section fill
+      const groundGrad = ctx.createLinearGradient(0, h * 0.45, 0, h);
+      groundGrad.addColorStop(0, planet.groundTopColor);
+      groundGrad.addColorStop(0.25, planet.groundMidColor);
+      groundGrad.addColorStop(1, planet.groundBotColor);
+
+      ctx.fillStyle = groundGrad;
+      ctx.beginPath();
+      const startPt = worldToScreen(leftWorldX, getTerrainHeight(leftWorldX));
+      ctx.moveTo(startPt.x, h);
+      ctx.lineTo(startPt.x, startPt.y);
+
+      for (let wx = leftWorldX; wx <= rightWorldX; wx += step) {
+        const wy = getTerrainHeight(wx);
+        const pt = worldToScreen(wx, wy);
+        ctx.lineTo(pt.x, pt.y);
+      }
+      const endPt = worldToScreen(rightWorldX, getTerrainHeight(rightWorldX));
+      ctx.lineTo(endPt.x, h);
+      ctx.closePath();
+      ctx.fill();
+
+      // Lit vs. Shadowed Top Crust Rim (2.5D relief shading)
+      for (let wx = leftWorldX; wx < rightWorldX; wx += step) {
+        const wy1 = getTerrainHeight(wx);
+        const wy2 = getTerrainHeight(wx + step);
+        const p1 = worldToScreen(wx, wy1);
+        const p2 = worldToScreen(wx + step, wy2);
+
+        const slope = Math.atan2(wy2 - wy1, step);
+        const sunExp = computeSunExposure(wx, wy1 + 0.1);
+
+        let brightness = 45;
+        if (sunExp > 0.15) {
+          const incidence = Math.max(0.15, Math.cos(slope + 0.35));
+          brightness = Math.floor(45 + sunExp * incidence * 165);
+        } else {
+          brightness = 14;
+        }
+
+        // Tint rim highlight to match planetary palette
+        if (planet.id === 'mars') {
+          ctx.strokeStyle = `rgb(${Math.min(255, brightness + 45)}, ${Math.floor(brightness * 0.62)}, ${Math.floor(brightness * 0.38)})`;
+        } else if (planet.id === 'jupiter') {
+          ctx.strokeStyle = `rgb(${Math.min(255, brightness + 35)}, ${Math.floor(brightness * 0.55)}, ${Math.floor(brightness * 0.35)})`;
+        } else if (planet.id === 'saturn') {
+          ctx.strokeStyle = `rgb(${Math.min(255, brightness + 40)}, ${Math.floor(brightness * 0.78)}, ${Math.floor(brightness * 0.35)})`;
+        } else if (planet.id === 'uranus') {
+          ctx.strokeStyle = `rgb(${Math.floor(brightness * 0.65)}, ${Math.min(255, brightness + 25)}, ${Math.min(255, brightness + 45)})`;
+        } else if (planet.id === 'neptune') {
+          ctx.strokeStyle = `rgb(${Math.floor(brightness * 0.75)}, ${Math.floor(brightness * 0.88)}, ${Math.min(255, brightness + 50)})`;
+        } else {
+          ctx.strokeStyle = `rgb(${brightness}, ${brightness + 3}, ${brightness + 8})`;
+        }
+
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+
+        // Darken subsurface column inside Permanently Shadowed Crater for dramatic visual cue
+        if (sunExp < 0.2) {
+          ctx.fillStyle = `rgba(3, 5, 10, ${(0.2 - sunExp) * 3.8})`;
+          ctx.fillRect(p1.x, p1.y, (p2.x - p1.x) + 1, h - p1.y);
+        }
+      }
+
+      // Surface Rocks & Boulders
+      for (const rock of surfaceRocks) {
+        if (rock.x < leftWorldX - 2 || rock.x > rightWorldX + 2) continue;
+        const pt = worldToScreen(rock.x, rock.y);
+        const rPx = rock.radius * PPM;
+        const sunExp = computeSunExposure(rock.x, rock.y + 0.2);
+        const shade = Math.floor(rock.shade * (0.25 + 0.75 * sunExp));
+
+        ctx.fillStyle = `rgb(${shade}, ${shade + 2}, ${shade + 5})`;
+        ctx.beginPath();
+        ctx.ellipse(pt.x, pt.y - rPx * 0.35, rPx, rPx * 0.65, rock.angle * 0.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawLunarLander(lx, ly) {
+      const pt = worldToScreen(lx, ly);
+      const s = PPM;
+      const planet = PLANETS[currentPlanetIndex];
+
+      ctx.save();
+      ctx.translate(pt.x, pt.y);
+
+      // Landing Struts & Footpads
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-1.1 * s, -1.6 * s);
+      ctx.lineTo(-2.1 * s, 0);
+      ctx.moveTo(1.1 * s, -1.6 * s);
+      ctx.lineTo(2.1 * s, 0);
+      ctx.moveTo(-0.4 * s, -1.6 * s);
+      ctx.lineTo(-0.6 * s, 0);
+      ctx.moveTo(0.4 * s, -1.6 * s);
+      ctx.lineTo(0.6 * s, 0);
+      ctx.stroke();
+
+      ctx.fillStyle = '#eab308';
+      [-2.1, -0.6, 0.6, 2.1].forEach(fx => {
+        ctx.fillRect((fx - 0.25) * s, -3, 0.5 * s, 4);
+      });
+
+      // Gold Kapton Descent Stage
+      ctx.fillStyle = '#d97706';
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 1.5;
+      ctx.fillRect(-1.35 * s, -2.8 * s, 2.7 * s, 1.25 * s);
+      ctx.strokeRect(-1.35 * s, -2.8 * s, 2.7 * s, 1.25 * s);
+
+      // Ascent Cabin
+      ctx.fillStyle = '#e2e8f0';
+      ctx.beginPath();
+      ctx.roundRect(-0.95 * s, -4.0 * s, 1.9 * s, 1.2 * s, 6);
+      ctx.fill();
+
+      // Triangular Windows
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(-0.65 * s, -3.65 * s, 0.45 * s, 0.3 * s);
+      ctx.fillRect(0.2 * s, -3.65 * s, 0.45 * s, 0.3 * s);
+
+      // High-Gain Dish
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, -4.0 * s);
+      ctx.lineTo(0, -4.4 * s);
+      ctx.stroke();
+
+      // Label
+      ctx.fillStyle = 'rgba(148, 163, 184, 0.85)';
+      ctx.font = '600 10px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(planet.landerLabel, 0, -4.6 * s);
+
+      ctx.restore();
+    }
+
+    function drawScienceTargets() {
+      const time = performance.now() * 0.003;
+
+      for (const m of SCIENCE_MISSIONS) {
+        const wy = getTerrainHeight(m.x);
+        const pt = worldToScreen(m.x, wy);
+        const pulse = 0.5 + 0.5 * Math.sin(time * 1.6);
+
+        ctx.save();
+        ctx.translate(pt.x, pt.y);
+
+        // Geological feature visual representation
+        if (m.type === 'basalt') {
+          ctx.fillStyle = '#1e222b';
+          ctx.beginPath();
+          ctx.ellipse(0, -6, 18, 9, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#333b4a';
+          ctx.beginPath();
+          ctx.ellipse(-10, -4, 10, 6, -0.2, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (m.type === 'ice') {
+          ctx.fillStyle = 'rgba(56, 189, 248, 0.45)';
+          ctx.beginPath();
+          ctx.ellipse(0, -3, 22, 6, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = '#bae6fd';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        } else if (m.type === 'skylight') {
+          ctx.fillStyle = '#05070c';
+          ctx.beginPath();
+          ctx.ellipse(0, -2, 24, 7, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = '#64748b';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        } else if (m.type === 'helium3') {
+          ctx.fillStyle = 'rgba(250, 204, 21, 0.25)';
+          ctx.beginPath();
+          ctx.ellipse(0, -4, 20, 7, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = '#facc15';
+          ctx.lineWidth = 1.2;
+          ctx.stroke();
+        } else if (m.type === 'seismometer' || m.type === 'beacon') {
+          ctx.strokeStyle = '#94a3b8';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(0, -28);
+          ctx.stroke();
+          ctx.fillStyle = m.analyzed ? '#34d399' : '#fbbf24';
+          ctx.beginPath();
+          ctx.arc(0, -30, 4.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Vertical Waypoint Laser Beacon
+        const beaconColor = m.analyzed ? '52, 211, 153' : '56, 189, 248';
+        const beamGrad = ctx.createLinearGradient(0, 0, 0, -140);
+        beamGrad.addColorStop(0, `rgba(${beaconColor}, ${m.analyzed ? 0.25 : 0.45 + pulse * 0.25})`);
+        beamGrad.addColorStop(1, `rgba(${beaconColor}, 0)`);
+
+        ctx.fillStyle = beamGrad;
+        ctx.fillRect(-3, -140, 6, 140);
+
+        // Floating Waypoint Diamond
+        const floatY = -56 - Math.sin(time + m.x) * 5;
+        ctx.fillStyle = m.analyzed ? '#10b981' : '#0284c7';
+        ctx.strokeStyle = '#f8fafc';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(0, floatY - 9);
+        ctx.lineTo(8, floatY);
+        ctx.lineTo(0, floatY + 9);
+        ctx.lineTo(-8, floatY);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Tag Text
+        ctx.font = '700 10px "JetBrains Mono", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = m.analyzed ? '#6ee7b7' : '#bae6fd';
+        ctx.fillText(m.analyzed ? 'LOGGED ✓' : `SITE ${SCIENCE_MISSIONS.indexOf(m) + 1}`, 0, floatY - 14);
+
+        ctx.restore();
+      }
+    }
+
+    function drawHeadlightBeam() {
+      const pt = worldToScreen(rover.x, rover.y);
+      ctx.save();
+      ctx.translate(pt.x, pt.y);
+      ctx.rotate(-rover.angle);
+
+      // LED Spotlight Cone projecting forward from rover mast
+      const beamGrad = ctx.createLinearGradient(25, -24, 290, 25);
+      beamGrad.addColorStop(0, 'rgba(224, 242, 254, 0.52)');
+      beamGrad.addColorStop(0.5, 'rgba(186, 230, 253, 0.22)');
+      beamGrad.addColorStop(1, 'rgba(186, 230, 253, 0)');
+
+      ctx.fillStyle = beamGrad;
+      ctx.beginPath();
+      ctx.moveTo(22, -26);
+      ctx.lineTo(295, -52);
+      ctx.lineTo(295, 78);
+      ctx.lineTo(22, -16);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.restore();
+    }
+
+    function drawRover() {
+      const pt = worldToScreen(rover.x, rover.y);
+      const s = PPM;
+
+      ctx.save();
+      ctx.translate(pt.x, pt.y);
+      // Note: Positive rover.angle means nose pitched UP in physics world, so rotate -rover.angle on canvas
+      ctx.rotate(-rover.angle);
+
+      // 1. Rocker-Bogie Titanium Suspension Struts
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 3.2;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      const legBaseY = 0.52 * s;
+      // Main differential pivot on chassis
+      ctx.beginPath();
+      ctx.moveTo(-0.35 * s, -0.1 * s);
+      ctx.lineTo(-1.15 * s, legBaseY - rover.wheelCompressions[0] * s);
+      ctx.moveTo(-0.35 * s, -0.1 * s);
+      ctx.lineTo(0.25 * s, 0.12 * s);
+      ctx.lineTo(0, legBaseY - rover.wheelCompressions[1] * s);
+      ctx.moveTo(0.25 * s, 0.12 * s);
+      ctx.lineTo(1.15 * s, legBaseY - rover.wheelCompressions[2] * s);
+      ctx.stroke();
+
+      // 2. Three Wire-Mesh Lunar Tires with Chevron Treads
+      for (let i = 0; i < 3; i++) {
+        const wx = rover.wheelOffsets[i] * s;
+        const wy = (legBaseY - rover.wheelCompressions[i] * s);
+        const r = rover.wheelRadius * s;
+
+        ctx.save();
+        ctx.translate(wx, wy);
+        ctx.rotate(rover.wheelSpinAngle);
+
+        // Tire outer mesh
+        ctx.fillStyle = '#1e293b';
+        ctx.strokeStyle = '#cbd5e1';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(0, 0, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // Chevron tread spokes (visualizes wheel rotation & slip!)
+        ctx.strokeStyle = '#64748b';
+        ctx.lineWidth = 1.6;
+        for (let a = 0; a < Math.PI * 2; a += Math.PI / 3) {
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(a) * (r * 0.35), Math.sin(a) * (r * 0.35));
+          ctx.lineTo(Math.cos(a) * (r * 0.92), Math.sin(a) * (r * 0.92));
+          ctx.stroke();
+        }
+
+        // Gold hubcap motor
+        ctx.fillStyle = '#eab308';
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 0.32, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+      }
+
+      // 3. Rover Chassis & Gold Thermal MLI Foil
+      ctx.fillStyle = '#d97706';
+      ctx.strokeStyle = '#fef3c7';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.roundRect(-1.05 * s, -0.45 * s, 2.1 * s, 0.48 * s, 6);
+      ctx.fill();
+      ctx.stroke();
+
+      // White Composite Avionics Deck
+      ctx.fillStyle = '#f8fafc';
+      ctx.beginPath();
+      ctx.roundRect(-0.95 * s, -0.58 * s, 1.9 * s, 0.16 * s, 4);
+      ctx.fill();
+
+      // 4. Angled Photovoltaic Solar Array Wing
+      ctx.save();
+      ctx.translate(-0.45 * s, -0.64 * s);
+      ctx.rotate(-0.18);
+      ctx.fillStyle = '#1e3a8a';
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 1.5;
+      ctx.fillRect(-0.65 * s, -0.06 * s, 1.3 * s, 0.1 * s);
+      ctx.strokeRect(-0.65 * s, -0.06 * s, 1.3 * s, 0.1 * s);
+      ctx.restore();
+
+      // 5. High-Gain Dish Antenna (Pointed toward Earth)
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-0.1 * s, -0.58 * s);
+      ctx.lineTo(-0.1 * s, -0.95 * s);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(-0.1 * s, -1.02 * s, 0.26 * s, 0.2 * Math.PI, 0.95 * Math.PI);
+      ctx.stroke();
+
+      // 6. Remote Sensing Mast & Stereoscopic NavCams + Headlight
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(0.72 * s, -0.58 * s);
+      ctx.lineTo(0.78 * s, -1.18 * s);
+      ctx.stroke();
+
+      // Camera Head
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(0.64 * s, -1.32 * s, 0.34 * s, 0.2 * s);
+      // Camera Lens
+      ctx.fillStyle = '#0284c7';
+      ctx.beginPath();
+      ctx.arc(0.92 * s, -1.22 * s, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Headlight Lamp Indicator
+      ctx.fillStyle = rover.lightsOn ? '#fef08a' : '#475569';
+      ctx.beginPath();
+      ctx.arc(0.95 * s, -0.95 * s, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 7. Active Laser Spectrometer Beam during Drilling
+      if (rover.isScanning) {
+        ctx.strokeStyle = '#ef4444';
+        ctx.shadowColor = '#ef4444';
+        ctx.shadowBlur = 10;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(0.85 * s, -0.2 * s);
+        ctx.lineTo(1.25 * s, 0.85 * s);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      }
+
+      ctx.restore();
+    }
+
+    function drawDustParticles() {
+      const planet = PLANETS[currentPlanetIndex];
+      for (const p of dustParticles) {
+        const pt = worldToScreen(p.x, p.y);
+        ctx.fillStyle = `rgba(${planet.dustColor}, ${p.alpha * Math.min(1, p.life)})`;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // =========================================================================
+    // 8. HUD TELEMETRY UPDATES
+    // =========================================================================
+    function updateHUD() {
+      const planet = PLANETS[currentPlanetIndex];
+      // Velocity & Planetary Gravity
+      document.getElementById('telSpeed').textContent = `${Math.abs(rover.vx).toFixed(1)} m/s`;
+      document.getElementById('telGravity').textContent = `g=${planet.gravity.toFixed(2)}m/s²`;
+
+      // Pitch Angle
+      const pitchDeg = rover.angle * (180 / Math.PI);
+      const absPitch = Math.abs(pitchDeg);
+      const pitchEl = document.getElementById('telPitch');
+      const pitchStatusEl = document.getElementById('telPitchStatus');
+      const pitchBox = document.getElementById('pitchBox');
+
+      pitchEl.textContent = `${pitchDeg >= 0 ? '+' : ''}${pitchDeg.toFixed(1)}°`;
+      if (absPitch > 36) {
+        pitchEl.className = 'mono text-xs sm:text-sm font-bold text-rose-400 animate-alert';
+        pitchStatusEl.textContent = 'TIP RISK!';
+        pitchStatusEl.className = 'mono text-[9px] text-rose-400 font-bold';
+        pitchBox.classList.add('border-rose-500/80');
+      } else if (absPitch > 22) {
+        pitchEl.className = 'mono text-xs sm:text-sm font-bold text-amber-400';
+        pitchStatusEl.textContent = 'STEEP';
+        pitchStatusEl.className = 'mono text-[9px] text-amber-400';
+        pitchBox.classList.remove('border-rose-500/80');
+      } else {
+        pitchEl.className = 'mono text-xs sm:text-sm font-bold text-emerald-400';
+        pitchStatusEl.textContent = 'NOMINAL';
+        pitchStatusEl.className = 'mono text-[9px] text-slate-500';
+        pitchBox.classList.remove('border-rose-500/80');
+      }
+
+      // Wheel Slip
+      const slipEl = document.getElementById('telSlip');
+      slipEl.textContent = `${rover.slipRatio}%`;
+      slipEl.className = rover.slipRatio > 45
+        ? 'mono text-xs sm:text-sm font-bold text-amber-400'
+        : 'mono text-xs sm:text-sm font-bold text-sky-300';
+
+      // Battery
+      const battPct = Math.round((rover.batteryWh / rover.maxBatteryWh) * 100);
+      const battEl = document.getElementById('telBattery');
+      battEl.textContent = `${battPct}%`;
+      document.getElementById('telWh').textContent = `${Math.round(rover.batteryWh)} Wh`;
+      battEl.className = battPct < 20
+        ? 'mono text-xs sm:text-sm font-bold text-rose-400 animate-alert'
+        : (battPct < 45 ? 'mono text-xs sm:text-sm font-bold text-amber-400' : 'mono text-xs sm:text-sm font-bold text-emerald-400');
+
+      // Solar & Draw
+      const solarEl = document.getElementById('telSolar');
+      const shadowStatusEl = document.getElementById('telShadowStatus');
+      solarEl.textContent = `+${rover.solarWatts}W`;
+      document.getElementById('telDraw').textContent = `-${rover.drawWatts}W`;
+
+      if (planet.rtgBaselineW > 0) {
+        shadowStatusEl.textContent = `RTG+SOLAR`;
+        shadowStatusEl.className = 'mono text-[9px] text-emerald-400/90';
+      } else if (rover.sunExposure < 0.2) {
+        shadowStatusEl.textContent = 'CRATER SHADOW';
+        shadowStatusEl.className = 'mono text-[9px] text-sky-400 font-bold';
+      } else {
+        shadowStatusEl.textContent = 'SUNLIT';
+        shadowStatusEl.className = 'mono text-[9px] text-amber-400/90';
+      }
+
+      // Samples & Planetary Stage
+      document.getElementById('telSamples').textContent = `${rover.samplesCollected} / ${SCIENCE_MISSIONS.length}`;
+      document.getElementById('telPlanetStage').textContent = `WORLD ${currentPlanetIndex + 1}/6`;
+    }
+
+    // =========================================================================
+    // 9. CONTROLS & UI EVENT BINDINGS
+    // =========================================================================
+    function toggleLights() {
+      rover.lightsOn = !rover.lightsOn;
+      const btn = document.getElementById('btnLights');
+      const label = document.getElementById('lightStateLabel');
+      if (rover.lightsOn) {
+        btn.classList.add('warn-active');
+        label.textContent = 'ON [L]';
+        audio.playBeep(720, 0.08, 'sine', 0.06);
+      } else {
+        btn.classList.remove('warn-active');
+        label.textContent = 'OFF [L]';
+        audio.playBeep(520, 0.08, 'sine', 0.06);
+      }
+    }
+
+    function toggleDriveMode() {
+      rover.highTorqueMode = !rover.highTorqueMode;
+      const title = document.getElementById('driveModeTitle');
+      if (rover.highTorqueMode) {
+        title.textContent = '4WD TORQUE';
+        title.className = 'text-xs sm:text-sm font-bold text-emerald-300';
+      } else {
+        title.textContent = 'ECO CRUISE';
+        title.className = 'text-xs sm:text-sm font-bold text-sky-300';
+      }
+      audio.playBeep(640, 0.09, 'triangle', 0.06);
+    }
+
+    function bindHoldButton(btnId, keyProp) {
+      const btn = document.getElementById(btnId);
+      const start = (e) => {
+        e.preventDefault();
+        keys[keyProp] = true;
+        btn.classList.add('active');
+      };
+      const end = (e) => {
+        e.preventDefault();
+        keys[keyProp] = false;
+        btn.classList.remove('active');
+      };
+      btn.addEventListener('mousedown', start);
+      btn.addEventListener('mouseup', end);
+      btn.addEventListener('mouseleave', end);
+      btn.addEventListener('touchstart', start, { passive: false });
+      btn.addEventListener('touchend', end, { passive: false });
+      btn.addEventListener('touchcancel', end, { passive: false });
+    }
+
+    function setupControls() {
+      bindHoldButton('btnLeft', 'left');
+      bindHoldButton('btnRight', 'right');
+      bindHoldButton('btnBrake', 'brake');
+      bindHoldButton('btnGyroLeft', 'gyroLeft');
+      bindHoldButton('btnGyroRight', 'gyroRight');
+
+      document.getElementById('btnLights').addEventListener('click', toggleLights);
+      document.getElementById('btnDriveMode').addEventListener('click', toggleDriveMode);
+      document.getElementById('btnAnalyze').addEventListener('click', initiateScienceScan);
+
+      document.getElementById('audioToggleBtn').addEventListener('click', () => {
+        const isOn = audio.toggle();
+        const btn = document.getElementById('audioToggleBtn');
+        btn.textContent = isOn ? 'AUDIO: ON' : 'AUDIO: OFF';
+        btn.classList.toggle('text-emerald-300', isOn);
+        btn.classList.toggle('border-emerald-500', isOn);
+      });
+
+      document.getElementById('modalContinueBtn').addEventListener('click', () => {
+        document.getElementById('scienceModal').classList.add('hidden');
+        simPaused = false;
+
+        if (rover.samplesCollected >= SCIENCE_MISSIONS.length) {
+          triggerMissionSuccess();
+        }
+      });
+
+      document.getElementById('restartBtn').addEventListener('click', () => {
+        const action = document.getElementById('restartBtn').dataset.action;
+        if (action === 'teleport' && currentPlanetIndex < PLANETS.length - 1) {
+          teleportToPlanet(currentPlanetIndex + 1);
+        } else if (action === 'restart_all') {
+          currentPlanetIndex = 0;
+          SCIENCE_MISSIONS = PLANETS[0].missions;
+          rover.totalExpeditionDist = 0;
+          initEnvironment();
+          resetSimulation(true);
+        } else {
+          resetSimulation(false);
+        }
+      });
+
+      // Keyboard Listeners
+      window.addEventListener('keydown', (e) => {
+        if (e.repeat) return;
+        switch (e.key.toLowerCase()) {
+          case 'a':
+          case 'arrowleft':
+            keys.left = true;
+            document.getElementById('btnLeft').classList.add('active');
+            break;
+          case 'd':
+          case 'arrowright':
+            keys.right = true;
+            document.getElementById('btnRight').classList.add('active');
+            break;
+          case 's':
+          case 'arrowdown':
+            keys.brake = true;
+            document.getElementById('btnBrake').classList.add('active');
+            break;
+          case 'q':
+            keys.gyroLeft = true;
+            document.getElementById('btnGyroLeft').classList.add('active');
+            break;
+          case 'w':
+          case 'arrowup':
+            keys.gyroRight = true;
+            document.getElementById('btnGyroRight').classList.add('active');
+            break;
+          case 'l':
+            toggleLights();
+            break;
+          case 'm':
+            toggleDriveMode();
+            break;
+          case ' ':
+          case 'e':
+            e.preventDefault();
+            if (!document.getElementById('scienceModal').classList.contains('hidden')) {
+              document.getElementById('modalContinueBtn').click();
+            } else {
+              initiateScienceScan();
+            }
+            break;
+        }
+      });
+
+      window.addEventListener('keyup', (e) => {
+        switch (e.key.toLowerCase()) {
+          case 'a':
+          case 'arrowleft':
+            keys.left = false;
+            document.getElementById('btnLeft').classList.remove('active');
+            break;
+          case 'd':
+          case 'arrowright':
+            keys.right = false;
+            document.getElementById('btnRight').classList.remove('active');
+            break;
+          case 's':
+          case 'arrowdown':
+            keys.brake = false;
+            document.getElementById('btnBrake').classList.remove('active');
+            break;
+          case 'q':
+            keys.gyroLeft = false;
+            document.getElementById('btnGyroLeft').classList.remove('active');
+            break;
+          case 'w':
+          case 'arrowup':
+            keys.gyroRight = false;
+            document.getElementById('btnGyroRight').classList.remove('active');
+            break;
+        }
+      });
+    }
+
+    function resetSimulation(resetAllWorlds = false) {
+      if (resetAllWorlds) {
+        currentPlanetIndex = 0;
+        SCIENCE_MISSIONS = PLANETS[0].missions;
+        rover.totalExpeditionDist = 0;
+      }
+
+      rover.x = 20;
+      rover.y = getTerrainHeight(20) + 0.6;
+      rover.vx = 0;
+      rover.vy = 0;
+      rover.angle = 0;
+      rover.angularVel = 0;
+      rover.batteryWh = 850;
+      rover.lightsOn = false;
+      rover.highTorqueMode = true;
+      rover.distanceTraveled = 0;
+      rover.samplesCollected = 0;
+      rover.isScanning = false;
+      rover.scanProgress = 0;
+
+      for (const m of SCIENCE_MISSIONS) {
+        m.analyzed = false;
+      }
+
+      dustParticles = [];
+      camera.x = rover.x;
+      camera.y = rover.y + 1.8;
+      simPaused = false;
+      missionEnded = false;
+      tipTimer = 0;
+
+      document.getElementById('endModal').classList.add('hidden');
+      document.getElementById('scienceModal').classList.add('hidden');
+      document.getElementById('scanOverlay').classList.add('hidden');
+      document.getElementById('btnLights').classList.remove('warn-active');
+      document.getElementById('lightStateLabel').textContent = 'OFF [L]';
+      document.getElementById('driveModeTitle').textContent = '4WD TORQUE';
+    }
+
+    // =========================================================================
+    // 10. MAIN ANIMATION LOOP
+    // =========================================================================
+    function mainLoop(timestamp) {
+      if (!lastTimestamp) lastTimestamp = timestamp;
+      const dt = (timestamp - lastTimestamp) / 1000;
+      lastTimestamp = timestamp;
+
+      updatePhysics(dt);
+      updateParticles(dt);
+      checkScienceProximity();
+      updateHUD();
+      render();
+
+      requestAnimationFrame(mainLoop);
+    }
+
+    window.onload = function () {
+      resizeCanvas();
+      window.addEventListener('resize', resizeCanvas);
+      initEnvironment();
+      setupControls();
+      resetSimulation();
+      requestAnimationFrame(mainLoop);
+    };
+  </script>
+</body>
+</html>
